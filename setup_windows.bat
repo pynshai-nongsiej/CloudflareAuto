@@ -125,6 +125,6 @@ echo    run_windows.bat
 echo.
 echo Or via Command Prompt / PowerShell:
 echo    .venv\Scripts\activate
-echo    python main.py --mode direct --headed
+echo    python main.py --mode direct
 echo.
 pause

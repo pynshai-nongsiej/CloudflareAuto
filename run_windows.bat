@@ -25,63 +25,56 @@ if not "%~1"=="" (
 cls
 echo ===============================================================================
 echo                CloudflareAuto / TenBox Websurfer Automation
+echo                           (All Options Headless)
 echo ===============================================================================
 echo.
 echo Select an option:
 echo.
-echo   [1] Direct Mode - Visible Browser GUI [Recommended]
-echo   [2] Direct Mode - Headless Background [Fast]
-echo   [3] Unlimited Loop - Continuous runs with 15-30s random delay
-echo   [4] Counted Loop - Run N registrations with 15-30s random delay
-echo   [5] AI Agent Mode - browser-use [Requires API key in .env]
-echo   [6] Show Help / CLI Options
+echo   [1] Direct Mode - Single Run (Headless)
+echo   [2] Unlimited Loop - Continuous runs with 15-30s delay (Headless)
+echo   [3] Counted Loop - Run N registrations with 15-30s delay (Headless)
+echo   [4] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
+echo   [5] Show Help / CLI Options
 echo   [0] Exit
 echo.
 echo ===============================================================================
-set /p "CHOICE=Enter choice [1-6, 0]: "
+set /p "CHOICE=Enter choice [1-5, 0]: "
 
-if "%CHOICE%"=="1" goto opt_direct_headed
-if "%CHOICE%"=="2" goto opt_direct_headless
-if "%CHOICE%"=="3" goto opt_loop_unlimited
-if "%CHOICE%"=="4" goto opt_loop_counted
-if "%CHOICE%"=="5" goto opt_agent
-if "%CHOICE%"=="6" goto opt_help
+if "%CHOICE%"=="1" goto opt_direct_single
+if "%CHOICE%"=="2" goto opt_loop_unlimited
+if "%CHOICE%"=="3" goto opt_loop_counted
+if "%CHOICE%"=="4" goto opt_agent
+if "%CHOICE%"=="5" goto opt_help
 if "%CHOICE%"=="0" goto end
 
-echo [!] Invalid selection. Please choose 1-6 or 0.
+echo [!] Invalid selection. Please choose 1-5 or 0.
 timeout /t 2 >nul
 goto menu
 
-:opt_direct_headed
+:opt_direct_single
 echo.
-echo [*] Launching Direct Mode in Headed Browser...
-python main.py --mode direct --headed
-goto pause_and_menu
-
-:opt_direct_headless
-echo.
-echo [*] Launching Direct Mode Headless...
+echo [*] Launching Direct Mode (Headless)...
 python main.py --mode direct
 goto pause_and_menu
 
 :opt_loop_unlimited
 echo.
-echo [*] Starting Unlimited Loop Mode - Press Ctrl+C to stop...
-python main.py --mode direct --headed --loop --delay-min 15 --delay-max 30
+echo [*] Starting Unlimited Loop Mode (Headless) - Press Ctrl+C to stop...
+python main.py --mode direct --loop --delay-min 15 --delay-max 30
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
-echo [*] Running %NUM_RUNS% registrations...
-python main.py --mode direct --headed --loop --count %NUM_RUNS% --delay-min 15 --delay-max 30
+echo [*] Running %NUM_RUNS% registrations (Headless)...
+python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 15 --delay-max 30
 goto pause_and_menu
 
 :opt_agent
 echo.
-echo [*] Starting browser-use Agent Mode...
+echo [*] Starting browser-use Agent Mode (Headless)...
 echo [*] Ensure your API key is configured in .env
-python main.py --mode browser-use --headed
+python main.py --mode browser-use
 goto pause_and_menu
 
 :opt_help

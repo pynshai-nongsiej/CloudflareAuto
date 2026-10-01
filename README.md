@@ -46,16 +46,17 @@ Double-click `run_windows.bat` or run in Command Prompt:
 run_windows.bat
 ```
 An interactive menu lets you choose:
-- Visible Browser UI (Headed)
-- Headless (Background)
-- Unlimited Loop with 15–30s random delays
-- Counted loop (e.g. 10 runs)
-- AI Agent mode
+- Direct Single Run (Headless)
+- Unlimited Loop with 15–30s random delays (Headless)
+- Counted loop, e.g. 10 runs (Headless)
+- AI Agent mode (Headless)
+
+*(All launcher options run headless in the background by default)*
 
 #### Or run via Command Prompt / PowerShell directly:
 ```cmd
 .venv\Scripts\activate
-python main.py --mode direct --headed
+python main.py --mode direct
 ```
 
 ---
