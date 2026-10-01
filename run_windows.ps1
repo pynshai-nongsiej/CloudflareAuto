@@ -15,8 +15,8 @@ param(
     [switch]$Headed,
     [switch]$Loop,
     [int]$Count = 0,
-    [int]$DelayMin = 60,
-    [int]$DelayMax = 120,
+    [int]$DelayMin = 15,
+    [int]$DelayMax = 30,
     [string]$Provider = "",
     [string]$Model = ""
 )

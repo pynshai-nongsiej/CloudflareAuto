@@ -77,14 +77,14 @@ def parse_args():
     parser.add_argument(
         "--delay-min",
         type=int,
-        default=60,
-        help="Minimum delay in seconds between loop runs (default: 60 [1 min])",
+        default=15,
+        help="Minimum delay in seconds between loop runs (default: 15)",
     )
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=120,
-        help="Maximum delay in seconds between loop runs (default: 120 [2 min])",
+        default=30,
+        help="Maximum delay in seconds between loop runs (default: 30)",
     )
     parser.add_argument(
         "--provider",

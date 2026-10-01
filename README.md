@@ -48,7 +48,7 @@ run_windows.bat
 An interactive menu lets you choose:
 - Visible Browser UI (Headed)
 - Headless (Background)
-- Unlimited Loop with 1–2 min (60–120s) random delays
+- Unlimited Loop with 15–30s random delays
 - Counted loop (e.g. 10 runs)
 - AI Agent mode
 
@@ -83,8 +83,8 @@ python3 main.py --mode direct --headed
 # Fast headless run
 python3 main.py --mode direct
 
-# Continuous loop with random delay between 1-2 minutes (60-120s)
-python3 main.py --mode direct --loop --delay-min 60 --delay-max 120
+# Continuous loop with random delay between 15-30 seconds
+python3 main.py --mode direct --loop --delay-min 15 --delay-max 30
 ```
 
 ---
@@ -97,8 +97,8 @@ python3 main.py --mode direct --loop --delay-min 60 --delay-max 120
 | `--headed` | Launch browser with visible GUI window | Headless |
 | `--loop` | Run continuous registration loop | Disabled |
 | `--count` | Number of loop runs (`0` = infinite / unlimited) | `0` |
-| `--delay-min` | Minimum random delay between loop runs (seconds) | `60` (1 min) |
-| `--delay-max` | Maximum random delay between loop runs (seconds) | `120` (2 min) |
+| `--delay-min` | Minimum random delay between loop runs (seconds) | `15` |
+| `--delay-max` | Maximum random delay between loop runs (seconds) | `30` |
 | `--provider` | LLM provider: `openai`, `gemini`, `anthropic`, `ollama` | Auto-detect |
 | `--model` | Specific LLM model name (e.g. `gpt-4o`, `gemini-2.0-flash`) | Provider default |
 | `--api-key` | Provider API key override | Read from `.env` |
