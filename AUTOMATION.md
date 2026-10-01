@@ -104,22 +104,22 @@ python3 main.py --mode direct --keep-inbox
 | `--keep-inbox` | Prevent temporary inbox deletion after verification | False (deletes inbox) |
 | `--loop` | Run continuous loop (unlimited runs if `--count 0`) | False |
 | `--count` | Number of loop runs (0 = infinite / unlimited) | `0` |
-| `--delay-min` | Minimum random delay between runs (seconds) | `40.0` |
-| `--delay-max` | Maximum random delay between runs (seconds) | `45.0` |
+| `--delay-min` | Minimum random delay between runs (seconds) | `60.0` (1 min) |
+| `--delay-max` | Maximum random delay between runs (seconds) | `120.0` (2 min) |
 | `--target-url` | Target URL (defaults to referral link) | `https://websurfer.1024tenbox.com/referral/J7V5V668` |
 
 ---
 
 ### Option 3: Unlimited Automated Loop with Random Delays
 
-Run unlimited automated registrations with randomized 40-45s delays and full fingerprint randomization:
+Run unlimited automated registrations with randomized 1-2 minutes (60-120s) delays and full fingerprint randomization:
 
 ```bash
-# Unlimited loop with 40-45s delays (runs continuously until stopped with Ctrl+C)
+# Unlimited loop with 1-2 min (60-120s) delays (runs continuously until stopped with Ctrl+C)
 python3 main.py --mode direct --loop
 
-# Run exactly N registrations with 40-45s delays
-python3 main.py --mode direct --loop --count 10 --delay-min 40 --delay-max 45
+# Run exactly N registrations with 1-2 min delays
+python3 main.py --mode direct --loop --count 10 --delay-min 60 --delay-max 120
 
 # Headed mode to visually inspect runs
 python3 main.py --mode direct --headed --loop
@@ -138,7 +138,7 @@ python3 main.py --mode direct --headed --loop
    - Randomizes User-Agent, platform, viewport resolutions, device pixel ratio, timezone, locale, WebGL renderer & vendor, Canvas noise, and AudioContext fingerprints per run.
 
 3. **Unlimited Loop Mode & Delay Randomization**:
-   - Customizable random delay between cycles (default 40 to 45 seconds).
+   - Customizable random delay between cycles (default 60 to 120 seconds / 1 to 2 minutes).
    - Real-time run counter and success/failure statistics.
    - Graceful interrupt handling with clean exit summaries.
 

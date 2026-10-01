@@ -69,8 +69,8 @@ Select an option:
 
   [1] Direct Mode (Visible Browser GUI - Recommended for visual feedback)
   [2] Direct Mode (Headless - Fast background execution)
-  [3] Unlimited Loop (Continuous runs with 40-45s random delay)
-  [4] Counted Loop (Run N registrations with random delay)
+  [3] Unlimited Loop (Continuous runs with 1-2 min random delay)
+  [4] Counted Loop (Run N registrations with 1-2 min random delay)
   [5] AI Agent Mode (browser-use, requires OPENAI_API_KEY / GEMINI_API_KEY)
   [6] Show Help / CLI Options
   [0] Exit
@@ -98,14 +98,14 @@ Open Command Prompt in the repository folder and run:
    python main.py --mode direct
    ```
 
-4. **Run unlimited continuous loop with random delays (40–45 seconds)**:
+4. **Run unlimited continuous loop with random delays (1–2 minutes / 60–120 seconds)**:
    ```cmd
-   python main.py --mode direct --headed --loop --delay-min 40 --delay-max 45
+   python main.py --mode direct --headed --loop --delay-min 60 --delay-max 120
    ```
 
-5. **Run a specific number of registrations (e.g. 10 runs)**:
+5. **Run a specific number of registrations (e.g. 10 runs with 1–2 min delay)**:
    ```cmd
-   python main.py --mode direct --headed --loop --count 10 --delay-min 40 --delay-max 45
+   python main.py --mode direct --headed --loop --count 10 --delay-min 60 --delay-max 120
    ```
 
 ---

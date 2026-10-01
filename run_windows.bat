@@ -31,8 +31,8 @@ echo Select an option:
 echo.
 echo   [1] Direct Mode - Visible Browser GUI [Recommended]
 echo   [2] Direct Mode - Headless Background [Fast]
-echo   [3] Unlimited Loop - Continuous runs with 40-45s random delay
-echo   [4] Counted Loop - Run N registrations with random delay
+echo   [3] Unlimited Loop - Continuous runs with 1-2 min random delay
+echo   [4] Counted Loop - Run N registrations with 1-2 min random delay
 echo   [5] AI Agent Mode - browser-use [Requires API key in .env]
 echo   [6] Show Help / CLI Options
 echo   [0] Exit
@@ -67,14 +67,14 @@ goto pause_and_menu
 :opt_loop_unlimited
 echo.
 echo [*] Starting Unlimited Loop Mode - Press Ctrl+C to stop...
-python main.py --mode direct --headed --loop --delay-min 40 --delay-max 45
+python main.py --mode direct --headed --loop --delay-min 60 --delay-max 120
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
 echo [*] Running %NUM_RUNS% registrations...
-python main.py --mode direct --headed --loop --count %NUM_RUNS% --delay-min 40 --delay-max 45
+python main.py --mode direct --headed --loop --count %NUM_RUNS% --delay-min 60 --delay-max 120
 goto pause_and_menu
 
 :opt_agent
