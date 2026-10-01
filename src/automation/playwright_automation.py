@@ -150,6 +150,7 @@ async def register_and_verify(
     timeout: int = 60,
     cleanup_inbox: bool = False,
     log_fn: Optional[Callable[[str], None]] = None,
+    target_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
 
@@ -164,6 +165,7 @@ async def register_and_verify(
     Returns:
         dict with success status, email, otp, final URL, cookies, and storage data.
     """
+    url = target_url or TARGET_URL
     def log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -202,9 +204,32 @@ async def register_and_verify(
         page = await context.new_page()
 
         try:
-            # ── Step 3: Navigate to referral URL ──
-            log(f"[*] Navigating to {TARGET_URL}...")
-            await page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=30000)
+            # ── Step 3: Navigate to referral URL with retry logic ──
+            log(f"[*] Navigating to {url}...")
+            max_nav_retries = 3
+            nav_success = False
+            last_nav_err = None
+
+            for attempt in range(1, max_nav_retries + 1):
+                try:
+                    if attempt > 1:
+                        log(f"[*] Retrying navigation (attempt {attempt}/{max_nav_retries})...")
+                    # Try domcontentloaded first, fallback to commit if server takes time to deliver full DOM
+                    wait_until_strategy = "domcontentloaded" if attempt <= 2 else "commit"
+                    await page.goto(url, wait_until=wait_until_strategy, timeout=30000)
+                    nav_success = True
+                    break
+                except Exception as nav_err:
+                    last_nav_err = nav_err
+                    log(f"[!] Navigation attempt {attempt} failed: {nav_err}")
+                    if attempt < max_nav_retries:
+                        await asyncio.sleep(attempt * 2)
+
+            if not nav_success:
+                raise TimeoutError(
+                    f"Failed to reach {url} after {max_nav_retries} attempts: {last_nav_err}\n"
+                    f"Check your internet connection or whether {url} is currently reachable from your network/VPN."
+                )
 
             # Wait for the SPA to initialize
             await asyncio.sleep(2)
@@ -450,4 +475,11 @@ async def register_and_verify(
             await _take_screenshot(page, "error", log)
             raise
         finally:
-            await browser.close()
+            try:
+                await context.close()
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass

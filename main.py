@@ -115,6 +115,12 @@ def parse_args():
         action="store_true",
         help="Do not delete the temporary inbox after verification completes",
     )
+    parser.add_argument(
+        "--target-url",
+        type=str,
+        default="https://websurfer.1024tenbox.com/referral/J7V5V668",
+        help="Target registration/referral URL",
+    )
     return parser.parse_args()
 
 
@@ -156,6 +162,7 @@ async def run_direct_single(args) -> dict:
         headed=args.headed,
         timeout=args.timeout,
         cleanup_inbox=not args.keep_inbox,
+        target_url=getattr(args, "target_url", None),
     )
 
     return result
