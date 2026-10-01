@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daribha · Private temp mail</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><main><header><span class="badge">DARIBHA / PRIVATE MAIL</span><h1>A fresh inbox.<br>Just for you.</h1><p>Temporary addresses. Automatic code extraction. Expires in 24 hours.</p></header>
+<section><label for="token">Private access token</label><div class="row"><input id="token" type="password" autocomplete="off" placeholder="Enter your access token"><button id="create">Create inbox</button></div><small>Token stays in memory only. Never share it.</small></section>
+<section><label for="address">Your temporary address</label><div class="row"><input id="address" placeholder="Create an inbox to begin" readonly><button id="copy">Copy</button></div><p id="expiry"></p><div class="row"><button id="refresh">Refresh</button><button id="delete" class="danger">Delete inbox</button></div></section>
+<p id="status" role="status">Ready. Real mail requires Cloudflare routing.</p><div id="messages"></div><footer>Checks every 5 seconds while unlocked. Delivery visibility can be delayed by Cloudflare KV. Attachments are listed, not stored.</footer></main></body></html>

@@ -1,0 +1,1 @@
+{"name":"daribha-tempmail","private":true,"type":"module","scripts":{"dev":"wrangler dev","deploy":"wrangler deploy","test":"node --test"},"dependencies":{"@faker-js/faker":"^10.6.0","postal-mime":"^2.4.3"},"devDependencies":{"wrangler":"^4.0.0"}}
