@@ -1,5 +1,5 @@
 from .tempmail_client import TempMailClient
-from .playwright_automation import register_and_verify
+from .playwright_automation import register_and_verify, RateLimitError
 from .browser_use_automation import create_browser_use_agent, get_default_llm
 from .fingerprint import (
     BrowserFingerprint,
@@ -12,6 +12,7 @@ from .fingerprint import (
 __all__ = [
     "TempMailClient",
     "register_and_verify",
+    "RateLimitError",
     "create_browser_use_agent",
     "get_default_llm",
     "BrowserFingerprint",

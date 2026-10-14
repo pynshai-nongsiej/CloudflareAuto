@@ -126,7 +126,7 @@ def create_browser_use_agent(
     default_task = (
         "Perform account registration and OTP verification on TenBox Websurfer:\n"
         "1. First, call `create_temporary_email` to generate a new disposable email address.\n"
-        "2. Navigate to https://websurfer.1024tenbox.com/referral/J7V5V668 (this is a referral landing page).\n"
+        "2. Navigate to https://websurfer.1024tenbox.com/referral/XUMZDQ5R (this is a referral landing page).\n"
         "3. On the referral page, click the 'Get started free' button to go to the login/signup form.\n"
         "4. Wait for the login form to appear, then type the generated email address into the email input field.\n"
         "5. Click the 'Send OTP' button.\n"

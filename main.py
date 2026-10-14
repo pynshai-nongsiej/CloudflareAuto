@@ -44,7 +44,7 @@ if sys.platform == "win32":
             pass
 
 from src.automation.tempmail_client import TempMailClient
-from src.automation.playwright_automation import register_and_verify
+from src.automation.playwright_automation import register_and_verify, RateLimitError
 from src.automation.browser_use_automation import create_browser_use_agent, get_default_llm
 
 
@@ -77,14 +77,14 @@ def parse_args():
     parser.add_argument(
         "--delay-min",
         type=int,
-        default=15,
-        help="Minimum delay in seconds between loop runs (default: 15)",
+        default=120,
+        help="Minimum delay in seconds between loop runs (default: 120 = 2 min)",
     )
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=30,
-        help="Maximum delay in seconds between loop runs (default: 30)",
+        default=180,
+        help="Maximum delay in seconds between loop runs (default: 180 = 3 min)",
     )
     parser.add_argument(
         "--provider",
@@ -118,7 +118,7 @@ def parse_args():
     parser.add_argument(
         "--target-url",
         type=str,
-        default="https://websurfer.1024tenbox.com/referral/J7V5V668",
+        default="https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
         help="Target registration/referral URL",
     )
     return parser.parse_args()
@@ -203,7 +203,8 @@ async def run_loop(args):
     print("=" * 60)
     print(f"  Mode:      {args.mode}")
     print(f"  Max runs:  {'unlimited' if max_runs == float('inf') else max_runs}")
-    print(f"  Delay:     {delay_min}-{delay_max}s between runs")
+    delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
+    print(f"  Delay:     {delay_desc} between runs")
     print(f"  Headed:    {args.headed}")
     print(f"  Timeout:   {args.timeout}s")
     print("=" * 60)
@@ -227,6 +228,17 @@ async def run_loop(args):
                 print_result(result, run_number)
             except KeyboardInterrupt:
                 raise
+            except RateLimitError as rle:
+                failures += 1
+                wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 600
+                wait_time += 15  # safety buffer
+                mins = int(wait_time // 60)
+                secs = int(wait_time % 60)
+                print(f"\n  ⚠️ Run #{run_number} RATE LIMITED BY TENBOX")
+                print(f"     Details: {rle.message}")
+                print(f"  ⏳ Sleeping for {wait_time}s (~{mins}m {secs}s) until rate limit expires before retrying...")
+                await asyncio.sleep(wait_time)
+                continue
             except Exception as e:
                 failures += 1
                 print(f"\n  ❌ Run #{run_number} FAILED: {e}")
@@ -235,7 +247,10 @@ async def run_loop(args):
             # Random delay before next run (skip if last run)
             if run_number < max_runs:
                 delay = random.uniform(delay_min, delay_max)
-                print(f"\n  ⏳ Waiting {delay:.1f}s before next run...")
+                mins = int(delay // 60)
+                secs = int(delay % 60)
+                time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+                print(f"\n  ⏳ Waiting {delay:.1f}s (~{time_str}) before next run...")
                 await asyncio.sleep(delay)
 
     except KeyboardInterrupt:

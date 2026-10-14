@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================
-#  launch_multi_mac.sh -- Launch 10 CloudflareAuto sessions
+#  launch_multi_mac.sh -- Launch CloudflareAuto sessions
 #  macOS only  |  Uses AppleScript (osascript) + Terminal.app
 # ============================================================
 #
-#  Layout: 5 columns x 2 rows
-#  Each terminal starts with a RANDOM delay of 5-20 seconds
-#  so sessions are staggered.
+#  Layout: Arranged dynamically (default 5 windows in 3x2 grid)
+#  Each terminal starts with a staggered delay (~30s apart:
+#  Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s)
+#  to avoid rate-limiting.
 #
 #  Usage:
 #    chmod +x launch_multi_mac.sh
 #    ./launch_multi_mac.sh
 #
 #  Optional env vars:
-#    NUM_WINDOWS=10   number of windows  (default 10)
+#    NUM_WINDOWS=5    number of windows  (default 5)
 #    MODE=direct      main.py --mode arg (default: direct)
 # ============================================================
 
@@ -21,8 +22,9 @@ set -euo pipefail
 
 # ── Config ───────────────────────────────────────────────────
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NUM_WINDOWS="${NUM_WINDOWS:-10}"
+NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
+TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XUMZDQ5R}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 
 # Clean up any old worker scripts
@@ -42,8 +44,16 @@ SCREEN_INFO=$(osascript -e 'tell application "Finder" to get bounds of window of
 SCREEN_W=$(echo "$SCREEN_INFO" | awk -F', ' '{print $3}')
 SCREEN_H=$(echo "$SCREEN_INFO" | awk -F', ' '{print $4}')
 
-COLS=5
-ROWS=2
+if (( NUM_WINDOWS <= 3 )); then
+    COLS=$NUM_WINDOWS
+    ROWS=1
+elif (( NUM_WINDOWS <= 6 )); then
+    COLS=3
+    ROWS=2
+else
+    COLS=5
+    ROWS=2
+fi
 MARGIN=5
 TITLE_BAR=28
 
@@ -51,7 +61,7 @@ WIN_W=$(( (SCREEN_W - (COLS + 1) * MARGIN) / COLS ))
 WIN_H=$(( (SCREEN_H - (ROWS + 1) * MARGIN - TITLE_BAR) / ROWS ))
 
 echo "================================================================"
-echo "   CloudflareAuto -- 10-Window macOS Launcher"
+echo "   CloudflareAuto -- macOS Multi-Terminal Launcher"
 echo "================================================================"
 echo "  Project : $PROJECT_DIR"
 echo "  Python  : $PYTHON"
@@ -77,7 +87,10 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     X2=$(( X + WIN_W ))
     Y2=$(( Y + WIN_H ))
 
-    DELAY=$(rand_between 5 20)
+    # Stagger launch start times (~30s interval between workers so they don't hammer simultaneously)
+    # Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s
+    BASE_DELAY=$(( i * 30 ))
+    DELAY=$(( BASE_DELAY + $(rand_between 5 15) ))
     NUM=$(printf '%02d' $((i+1)))
     LABEL="Worker-${NUM}"
     WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
@@ -105,7 +118,7 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo ""
 
 while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop
+    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${TARGET_URL}"
     echo ""
     echo "[${LABEL}] Process exited -- restarting in 5s..."
     sleep 5

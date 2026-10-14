@@ -78,14 +78,39 @@ playwright install chromium
 
 ### 2. Run Automation
 ```bash
+# Single run (fast headless)
+python3 main.py --mode direct
+
 # Single run with visible browser
 python3 main.py --mode direct --headed
 
-# Fast headless run
-python3 main.py --mode direct
+# Continuous loop with 2-3 min delays
+python3 main.py --mode direct --loop
+```
 
-# Continuous loop with random delay between 15-30 seconds
-python3 main.py --mode direct --loop --delay-min 15 --delay-max 30
+### 3. Multi-Session Grid Launchers
+
+#### On Linux / Ubuntu (Desktop, Server, or Headless VPS)
+```bash
+# Launch 5 workers (auto-detects GNOME Terminal, tmux, or background processes)
+chmod +x launch_multi_linux.sh
+./launch_multi_linux.sh
+
+# Or force tmux tiled session (great for servers & SSH):
+METHOD=tmux ./launch_multi_linux.sh
+
+# Stop all workers:
+./launch_multi_linux.sh stop
+```
+
+#### On macOS
+```bash
+# Launch 5 windows arranged in a grid with staggered delays
+chmod +x launch_multi_mac.sh
+./launch_multi_mac.sh
+
+# Stop all workers:
+pkill -f 'main.py'
 ```
 
 ---

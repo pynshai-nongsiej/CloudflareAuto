@@ -8,8 +8,9 @@ All sessions use a fully randomized browser fingerprint for anti-detection.
 
 import asyncio
 import random
+import re
 import sys
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 from .tempmail_client import TempMailClient
@@ -21,7 +22,15 @@ from .fingerprint import (
     BrowserFingerprint,
 )
 
-TARGET_URL = "https://websurfer.1024tenbox.com/referral/J7V5V668"
+TARGET_URL = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+
+
+class RateLimitError(Exception):
+    """Raised when TenBox rate limits verification code requests."""
+    def __init__(self, wait_seconds: int, message: str):
+        super().__init__(message)
+        self.wait_seconds = wait_seconds
+        self.message = message
 
 
 async def _human_type(page: Page, selector_or_element, text: str, log: Callable):
@@ -125,6 +134,65 @@ async def _find_otp_inputs(page: Page) -> list:
     all_inputs = await page.query_selector_all('input:not([type="hidden"]):not([type="password"])')
     visible = [i for i in all_inputs if await i.is_visible()]
     return visible
+
+
+async def _check_rate_limit_error(page: Page) -> Optional[Tuple[int, str]]:
+    """Checks if a rate-limit error banner is displayed on the TenBox page.
+
+    Returns (wait_seconds, full_message) if detected, else None.
+    """
+    try:
+        # Check text content of visible containers / alerts
+        selectors = [
+            '[role="alert"]',
+            '.alert',
+            '.error',
+            '.warning',
+            'div',
+            'p',
+            'span',
+        ]
+        text_content = ""
+        for sel in selectors:
+            try:
+                elements = await page.query_selector_all(sel)
+                for el in elements:
+                    if not await el.is_visible():
+                        continue
+                    txt = (await el.inner_text()).strip()
+                    if "Too many verification requests" in txt or "Please wait before requesting" in txt:
+                        text_content = txt
+                        break
+                if text_content:
+                    break
+            except Exception:
+                continue
+
+        if not text_content:
+            # Fallback check entire page body text
+            body_txt = await page.evaluate("() => document.body ? document.body.innerText : ''")
+            if "Too many verification requests" in body_txt or "Please wait before requesting another code" in body_txt:
+                for line in body_txt.splitlines():
+                    if any(k in line for k in ["Too many", "Please wait", "Try again in"]):
+                        text_content += (" " + line.strip()).strip()
+
+        if text_content and ("Too many" in text_content or "Try again in" in text_content or "Please wait" in text_content):
+            wait_seconds = 0
+            # Look for "Try again in 12:19" or "12:19"
+            match_mm_ss = re.search(r'(?:Try again in|wait[^\d]*)?(\d+):(\d+)', text_content, re.IGNORECASE)
+            if match_mm_ss:
+                mins = int(match_mm_ss.group(1))
+                secs = int(match_mm_ss.group(2))
+                wait_seconds = mins * 60 + secs
+            else:
+                match_mins = re.search(r'(\d+)\s*(?:min|minute)', text_content, re.IGNORECASE)
+                if match_mins:
+                    wait_seconds = int(match_mins.group(1)) * 60
+
+            return (wait_seconds, text_content)
+    except Exception:
+        pass
+    return None
 
 
 async def _take_screenshot(page: Page, label: str, log: Callable) -> Optional[str]:
@@ -300,6 +368,14 @@ async def register_and_verify(
                     await _take_screenshot(page, "no_login_form", log)
                     log(f"[!] Current URL: {page.url} — attempting to find form anyway")
 
+            # Check if page is already showing a rate limit error banner
+            initial_rate_limit = await _check_rate_limit_error(page)
+            if initial_rate_limit:
+                wait_sec, msg = initial_rate_limit
+                await _take_screenshot(page, "rate_limited_initial", log)
+                log(f"[!] ⚠️ Form is already rate-limited by TenBox: {msg}")
+                raise RateLimitError(wait_sec, msg)
+
             # ── Step 4: Enter email ──
             log(f"[*] Looking for email input field...")
             email_input = await _wait_for_email_input(page)
@@ -329,10 +405,18 @@ async def register_and_verify(
 
             # The SPA may navigate to /otp or show OTP inputs on the same page
             otp_found = False
-            for attempt in range(3):
+            for attempt in range(5):
+                # Check if server returned rate limit error
+                rate_limit = await _check_rate_limit_error(page)
+                if rate_limit:
+                    wait_sec, msg = rate_limit
+                    await _take_screenshot(page, "rate_limited", log)
+                    log(f"[!] ⚠️ Rate limit encountered: {msg}")
+                    raise RateLimitError(wait_sec, msg)
+
                 try:
                     # Check if URL changed to /otp
-                    await page.wait_for_url("**/otp**", timeout=5000)
+                    await page.wait_for_url("**/otp**", timeout=2000)
                     log(f"[+] Navigated to OTP page: {page.url}")
                     otp_found = True
                     break
@@ -349,6 +433,14 @@ async def register_and_verify(
                 await asyncio.sleep(1)
 
             if not otp_found:
+                # Final check for rate limit error banner
+                rate_limit = await _check_rate_limit_error(page)
+                if rate_limit:
+                    wait_sec, msg = rate_limit
+                    await _take_screenshot(page, "rate_limited", log)
+                    log(f"[!] ⚠️ Rate limit encountered: {msg}")
+                    raise RateLimitError(wait_sec, msg)
+
                 await _take_screenshot(page, "no_otp_page", log)
                 raise TimeoutError(f"OTP page/inputs not found after clicking Send OTP. Current URL: {page.url}")
 

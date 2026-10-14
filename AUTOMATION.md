@@ -15,7 +15,7 @@ Automated registration and verification system for [TenBox Websurfer](https://we
                                           |
                                           v
 +-----------------------------------------------------------------------------------+
-| 2. Navigate to https://websurfer.1024tenbox.com/referral/J7V5V668                 |
+| 2. Navigate to https://websurfer.1024tenbox.com/referral/XUMZDQ5R                 |
 |    - Click "Get started free" CTA                                                 |
 |    - Input generated email into the email field                                   |
 |    - Click "Send OTP"                                                             |
@@ -106,7 +106,7 @@ python3 main.py --mode direct --keep-inbox
 | `--count` | Number of loop runs (0 = infinite / unlimited) | `0` |
 | `--delay-min` | Minimum random delay between runs (seconds) | `15.0` |
 | `--delay-max` | Maximum random delay between runs (seconds) | `30.0` |
-| `--target-url` | Target URL (defaults to referral link) | `https://websurfer.1024tenbox.com/referral/J7V5V668` |
+| `--target-url` | Target URL (defaults to referral link) | `https://websurfer.1024tenbox.com/referral/XUMZDQ5R` |
 
 ---
 

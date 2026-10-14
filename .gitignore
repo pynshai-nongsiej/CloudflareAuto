@@ -42,6 +42,7 @@ env/
 # Screenshots & Temporary automation files
 websurfer_screenshots/
 screenshots/
+blog_ad_automation/
 *.png
 
 # Operating System Files

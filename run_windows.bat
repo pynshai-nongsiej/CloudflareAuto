@@ -31,8 +31,8 @@ echo.
 echo Select an option:
 echo.
 echo   [1] Direct Mode - Single Run (Headless)
-echo   [2] Unlimited Loop - Continuous runs with 15-30s delay (Headless)
-echo   [3] Counted Loop - Run N registrations with 15-30s delay (Headless)
+echo   [2] Unlimited Loop - Continuous runs with 2-3 min delay (Headless)
+echo   [3] Counted Loop - Run N registrations with 2-3 min delay (Headless)
 echo   [4] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
 echo   [5] Show Help / CLI Options
 echo   [0] Exit
