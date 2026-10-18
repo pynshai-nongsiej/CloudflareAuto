@@ -24,7 +24,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
-TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XUMZDQ5R}"
+TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XWUPKX2D}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 
 # Clean up any old worker scripts

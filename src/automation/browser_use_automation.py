@@ -74,6 +74,7 @@ def create_browser_use_agent(
     llm: Optional[Any] = None,
     headed: bool = False,
     task_instructions: Optional[str] = None,
+    target_url: Optional[str] = None,
 ) -> Agent:
     """Create and configure a browser-use Agent equipped with TempMail verification tools.
     
@@ -123,10 +124,17 @@ def create_browser_use_agent(
             return f"ERROR: Timed out after {timeout_seconds}s waiting for OTP on {target}."
         return code
 
+    default_referral = (
+        "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+        if sys.platform == "win32"
+        else "https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+    )
+    target_link = target_url or default_referral
+
     default_task = (
         "Perform account registration and OTP verification on TenBox Websurfer:\n"
         "1. First, call `create_temporary_email` to generate a new disposable email address.\n"
-        "2. Navigate to https://websurfer.1024tenbox.com/referral/XUMZDQ5R (this is a referral landing page).\n"
+        f"2. Navigate to {target_link} (this is a referral landing page).\n"
         "3. On the referral page, click the 'Get started free' button to go to the login/signup form.\n"
         "4. Wait for the login form to appear, then type the generated email address into the email input field.\n"
         "5. Click the 'Send OTP' button.\n"

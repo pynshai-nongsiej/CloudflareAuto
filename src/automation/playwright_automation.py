@@ -22,7 +22,11 @@ from .fingerprint import (
     BrowserFingerprint,
 )
 
-TARGET_URL = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+TARGET_URL = (
+    "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+    if sys.platform == "win32"
+    else "https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+)
 
 
 class RateLimitError(Exception):

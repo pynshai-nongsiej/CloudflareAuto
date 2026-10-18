@@ -12,6 +12,9 @@ if not exist ".venv\Scripts\activate.bat" (
     exit /b 1
 )
 
+:: Windows Referral Target URL
+set "TARGET_URL=https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+
 :: Activate virtualenv
 call .venv\Scripts\activate.bat
 
@@ -54,27 +57,27 @@ goto menu
 :opt_direct_single
 echo.
 echo [*] Launching Direct Mode (Headless)...
-python main.py --mode direct
+python main.py --mode direct --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_loop_unlimited
 echo.
 echo [*] Starting Unlimited Loop Mode (Headless) - Press Ctrl+C to stop...
-python main.py --mode direct --loop --delay-min 15 --delay-max 30
+python main.py --mode direct --loop --delay-min 15 --delay-max 30 --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
 echo [*] Running %NUM_RUNS% registrations (Headless)...
-python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 15 --delay-max 30
+python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 15 --delay-max 30 --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_agent
 echo.
 echo [*] Starting browser-use Agent Mode (Headless)...
 echo [*] Ensure your API key is configured in .env
-python main.py --mode browser-use
+python main.py --mode browser-use --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_help

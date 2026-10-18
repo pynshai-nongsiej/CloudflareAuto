@@ -48,6 +48,13 @@ from src.automation.playwright_automation import register_and_verify, RateLimitE
 from src.automation.browser_use_automation import create_browser_use_agent, get_default_llm
 
 
+DEFAULT_TARGET_URL = (
+    "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+    if sys.platform == "win32"
+    else "https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="TenBox Websurfer Auto-Registration & OTP Verification via TempMail"
@@ -118,8 +125,8 @@ def parse_args():
     parser.add_argument(
         "--target-url",
         type=str,
-        default="https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
-        help="Target registration/referral URL",
+        default=DEFAULT_TARGET_URL,
+        help="Target registration/referral URL (defaults to Windows or Linux/Mac referral link)",
     )
     return parser.parse_args()
 
@@ -146,6 +153,7 @@ async def run_browser_use(args):
         mail_client=mail_client,
         llm=llm,
         headed=args.headed,
+        target_url=getattr(args, "target_url", DEFAULT_TARGET_URL),
     )
 
     history = await agent.run()

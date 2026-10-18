@@ -18,7 +18,8 @@ param(
     [int]$DelayMin = 15,
     [int]$DelayMax = 30,
     [string]$Provider = "",
-    [string]$Model = ""
+    [string]$Model = "",
+    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,10 @@ if (-not (Test-Path $VenvPython)) {
 
 # Build arguments list
 $PyArgs = @("main.py", "--mode", $Mode)
+
+if ($TargetUrl) {
+    $PyArgs += @("--target-url", $TargetUrl)
+}
 
 if ($Headed) {
     $PyArgs += "--headed"
