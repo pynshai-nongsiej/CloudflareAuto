@@ -90,8 +90,8 @@ def parse_args():
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=180,
-        help="Maximum delay in seconds between loop runs (default: 180 = 3 min)",
+        default=240,
+        help="Maximum delay in seconds between loop runs (default: 240 = 4 min)",
     )
     parser.add_argument(
         "--provider",
@@ -238,19 +238,34 @@ async def run_loop(args):
                 raise
             except RateLimitError as rle:
                 failures += 1
-                wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 600
-                wait_time += 15  # safety buffer
+                wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 900
+                wait_time += 30  # safety buffer
+                resume_time = time.strftime("%H:%M:%S", time.localtime(time.time() + wait_time))
                 mins = int(wait_time // 60)
                 secs = int(wait_time % 60)
-                print(f"\n  ⚠️ Run #{run_number} RATE LIMITED BY TENBOX")
-                print(f"     Details: {rle.message}")
-                print(f"  ⏳ Sleeping for {wait_time}s (~{mins}m {secs}s) until rate limit expires before retrying...")
-                await asyncio.sleep(wait_time)
+                print(f"\n{'=' * 60}")
+                print(f"  ⚠️ Run #{run_number} RATE LIMITED BY TENBOX")
+                print(f"     Details:        {rle.message}")
+                print(f"     Cooldown:       {wait_time}s (~{mins}m {secs}s)")
+                print(f"     Target Resume:  {resume_time}")
+                print(f"{'=' * 60}")
+                # Periodic updates while waiting so user knows process is active
+                remaining = wait_time
+                while remaining > 0:
+                    step = min(remaining, 60)
+                    await asyncio.sleep(step)
+                    remaining -= step
+                    if remaining > 0:
+                        rem_m = int(remaining // 60)
+                        rem_s = int(remaining % 60)
+                        print(f"  ⏳ [Cooldown] {rem_m}m {rem_s}s remaining (resumes at {resume_time})...")
+                print(f"\n  ✅ Rate limit cooldown complete! Resuming automation loop...\n")
                 continue
             except Exception as e:
                 failures += 1
                 print(f"\n  ❌ Run #{run_number} FAILED: {e}")
-                print(f"     Continuing to next run...")
+                print(f"     Pausing 15s before next attempt...")
+                await asyncio.sleep(15)
 
             # Random delay before next run (skip if last run)
             if run_number < max_runs:

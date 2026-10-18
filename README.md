@@ -103,6 +103,15 @@ METHOD=tmux ./launch_multi_linux.sh
 ./launch_multi_linux.sh stop
 ```
 
+#### On Windows
+```cmd
+# Double-click or run to launch 5 workers tiled in a 3x2 grid with staggered delays:
+launch_multi_windows.bat
+
+# Stop all workers:
+launch_multi_windows.bat stop
+```
+
 #### On macOS
 ```bash
 # Launch 5 windows arranged in a grid with staggered delays
@@ -123,13 +132,14 @@ pkill -f 'main.py'
 | `--headed` | Launch browser with visible GUI window | Headless |
 | `--loop` | Run continuous registration loop | Disabled |
 | `--count` | Number of loop runs (`0` = infinite / unlimited) | `0` |
-| `--delay-min` | Minimum random delay between loop runs (seconds) | `15` |
-| `--delay-max` | Maximum random delay between loop runs (seconds) | `30` |
+| `--delay-min` | Minimum random delay between loop runs (seconds) | `120` (2 min) |
+| `--delay-max` | Maximum random delay between loop runs (seconds) | `240` (4 min) |
 | `--provider` | LLM provider: `openai`, `gemini`, `anthropic`, `ollama` | Auto-detect |
 | `--model` | Specific LLM model name (e.g. `gpt-4o`, `gemini-2.0-flash`) | Provider default |
 | `--api-key` | Provider API key override | Read from `.env` |
 | `--timeout` | Timeout in seconds waiting for OTP arrival | `90` |
 | `--keep-inbox` | Keep the temporary inbox active after verification | `False` (deletes inbox) |
+| `--target-url` | Target registration/referral URL | Platform referral link |
 
 ---
 

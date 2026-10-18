@@ -52,7 +52,28 @@ setup_windows.bat
 
 ## 🎮 Running the Automation on Windows
 
-### Method A: One-Click Interactive Launcher (`run_windows.bat`)
+### Method A: Multi-Window Grid Launcher (`launch_multi_windows.bat`) — ⭐ RECOMMENDED
+
+Mirrors the multi-session launcher from macOS and Linux (`launch_multi_mac.sh` / `launch_multi_linux.sh`):
+
+```cmd
+# Double-click or run from CMD:
+launch_multi_windows.bat
+```
+
+**Features:**
+- Spawns **5 worker terminals arranged in a tiled 3x2 grid** across your screen.
+- **Staggered startup delays** (~30s apart: Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s) so workers do not hit TenBox simultaneously.
+- Runs continuous registration loops with safe **2–4 minute delays** between iterations.
+- **Smart Rate-Limit Handling**: Automatically detects HTTP 429 or TenBox cooldown timers, sleeps safely, displays live minute-by-minute progress, and cleanly resumes once the rate limit expires.
+- **One-Command Stop**:
+  ```cmd
+  launch_multi_windows.bat stop
+  ```
+
+---
+
+### Method B: One-Click Interactive Launcher (`run_windows.bat`)
 
 Double-click `run_windows.bat` or run:
 ```cmd
@@ -68,17 +89,19 @@ This opens an interactive menu:
 Select an option:
 
   [1] Direct Mode - Single Run (Headless)
-  [2] Unlimited Loop - Continuous runs with 15-30s delay (Headless)
-  [3] Counted Loop - Run N registrations with 15-30s delay (Headless)
-  [4] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
-  [5] Show Help / CLI Options
+  [2] Unlimited Loop - Continuous runs with 2-4 min delay (Headless)
+  [3] Counted Loop - Run N registrations with 2-4 min delay (Headless)
+  [4] Multi-Window Grid Launcher (5 Tiled Workers with Staggered Delays)
+  [5] Stop All Running Workers
+  [6] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
+  [7] Show Help / CLI Options
   [0] Exit
 ```
-Simply type `1`, `2`, `3`, etc., and hit Enter! All options run silently in the background (headless).
+Simply type `1`, `2`, `3`, `4`, etc., and hit Enter!
 
 ---
 
-### Method B: Using Windows Command Prompt (`cmd.exe`)
+### Method C: Using Windows Command Prompt (`cmd.exe`)
 
 Open Command Prompt in the repository folder and run:
 
@@ -92,21 +115,21 @@ Open Command Prompt in the repository folder and run:
    python main.py --mode direct
    ```
 
-3. **Run unlimited continuous loop headless (15–30 seconds random delay)**:
+3. **Run unlimited continuous loop headless (2–4 minutes safe random delay)**:
    ```cmd
-   python main.py --mode direct --loop --delay-min 15 --delay-max 30
+   python main.py --mode direct --loop --delay-min 120 --delay-max 240
    ```
 
 4. **Run a specific number of registrations headless (e.g. 10 runs)**:
    ```cmd
-   python main.py --mode direct --loop --count 10 --delay-min 15 --delay-max 30
+   python main.py --mode direct --loop --count 10 --delay-min 120 --delay-max 240
    ```
 
 *(Tip: If you ever want to see the browser window for debugging, just add `--headed` to any command).*
 
 ---
 
-### Method C: Using Windows PowerShell (`powershell.exe`)
+### Method D: Using Windows PowerShell (`powershell.exe`)
 
 If you prefer PowerShell, you can use our built-in script `run_windows.ps1` or run Python directly:
 

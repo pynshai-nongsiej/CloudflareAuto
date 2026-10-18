@@ -34,23 +34,27 @@ echo.
 echo Select an option:
 echo.
 echo   [1] Direct Mode - Single Run (Headless)
-echo   [2] Unlimited Loop - Continuous runs with 2-3 min delay (Headless)
-echo   [3] Counted Loop - Run N registrations with 2-3 min delay (Headless)
-echo   [4] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
-echo   [5] Show Help / CLI Options
+echo   [2] Unlimited Loop - Continuous runs with 2-4 min delay (Headless)
+echo   [3] Counted Loop - Run N registrations with 2-4 min delay (Headless)
+echo   [4] Multi-Window Grid Launcher (5 Tiled Workers with Staggered Delays)
+echo   [5] Stop All Running Workers
+echo   [6] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
+echo   [7] Show Help / CLI Options
 echo   [0] Exit
 echo.
 echo ===============================================================================
-set /p "CHOICE=Enter choice [1-5, 0]: "
+set /p "CHOICE=Enter choice [1-7, 0]: "
 
 if "%CHOICE%"=="1" goto opt_direct_single
 if "%CHOICE%"=="2" goto opt_loop_unlimited
 if "%CHOICE%"=="3" goto opt_loop_counted
-if "%CHOICE%"=="4" goto opt_agent
-if "%CHOICE%"=="5" goto opt_help
+if "%CHOICE%"=="4" goto opt_multi
+if "%CHOICE%"=="5" goto opt_stop
+if "%CHOICE%"=="6" goto opt_agent
+if "%CHOICE%"=="7" goto opt_help
 if "%CHOICE%"=="0" goto end
 
-echo [!] Invalid selection. Please choose 1-5 or 0.
+echo [!] Invalid selection. Please choose 1-7 or 0.
 timeout /t 2 >nul
 goto menu
 
@@ -63,14 +67,25 @@ goto pause_and_menu
 :opt_loop_unlimited
 echo.
 echo [*] Starting Unlimited Loop Mode (Headless) - Press Ctrl+C to stop...
-python main.py --mode direct --loop --delay-min 15 --delay-max 30 --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --delay-min 120 --delay-max 240 --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
 echo [*] Running %NUM_RUNS% registrations (Headless)...
-python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 15 --delay-max 30 --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 120 --delay-max 240 --target-url "%TARGET_URL%"
+goto pause_and_menu
+
+:opt_multi
+echo.
+echo [*] Launching Multi-Window Tiled Grid Launcher...
+call launch_multi_windows.bat
+goto pause_and_menu
+
+:opt_stop
+echo.
+call launch_multi_windows.bat stop
 goto pause_and_menu
 
 :opt_agent

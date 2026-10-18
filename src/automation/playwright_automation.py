@@ -140,11 +140,14 @@ async def _find_otp_inputs(page: Page) -> list:
     return visible
 
 
-async def _check_rate_limit_error(page: Page) -> Optional[Tuple[int, str]]:
-    """Checks if a rate-limit error banner is displayed on the TenBox page.
+async def _check_rate_limit_error(page: Page, intercepted: Optional[list] = None) -> Optional[Tuple[int, str]]:
+    """Checks if a rate-limit error banner is displayed on the TenBox page or received over network.
 
     Returns (wait_seconds, full_message) if detected, else None.
     """
+    if intercepted and intercepted[0]:
+        return intercepted[0]
+
     try:
         # Check text content of visible containers / alerts
         selectors = [
@@ -152,11 +155,25 @@ async def _check_rate_limit_error(page: Page) -> Optional[Tuple[int, str]]:
             '.alert',
             '.error',
             '.warning',
+            '.toast',
+            '.message',
             'div',
             'p',
             'span',
         ]
         text_content = ""
+        rate_keywords = [
+            "too many",
+            "please wait",
+            "try again in",
+            "try again later",
+            "rate limit",
+            "too frequently",
+            "request limit",
+            "slow down",
+            "cooldown",
+        ]
+
         for sel in selectors:
             try:
                 elements = await page.query_selector_all(sel)
@@ -164,7 +181,8 @@ async def _check_rate_limit_error(page: Page) -> Optional[Tuple[int, str]]:
                     if not await el.is_visible():
                         continue
                     txt = (await el.inner_text()).strip()
-                    if "Too many verification requests" in txt or "Please wait before requesting" in txt:
+                    lower_txt = txt.lower()
+                    if any(k in lower_txt for k in rate_keywords):
                         text_content = txt
                         break
                 if text_content:
@@ -175,25 +193,36 @@ async def _check_rate_limit_error(page: Page) -> Optional[Tuple[int, str]]:
         if not text_content:
             # Fallback check entire page body text
             body_txt = await page.evaluate("() => document.body ? document.body.innerText : ''")
-            if "Too many verification requests" in body_txt or "Please wait before requesting another code" in body_txt:
+            lower_body = body_txt.lower()
+            if any(k in lower_body for k in rate_keywords):
                 for line in body_txt.splitlines():
-                    if any(k in line for k in ["Too many", "Please wait", "Try again in"]):
+                    if any(k in line.lower() for k in rate_keywords):
                         text_content += (" " + line.strip()).strip()
 
-        if text_content and ("Too many" in text_content or "Try again in" in text_content or "Please wait" in text_content):
-            wait_seconds = 0
-            # Look for "Try again in 12:19" or "12:19"
-            match_mm_ss = re.search(r'(?:Try again in|wait[^\d]*)?(\d+):(\d+)', text_content, re.IGNORECASE)
-            if match_mm_ss:
-                mins = int(match_mm_ss.group(1))
-                secs = int(match_mm_ss.group(2))
-                wait_seconds = mins * 60 + secs
-            else:
-                match_mins = re.search(r'(\d+)\s*(?:min|minute)', text_content, re.IGNORECASE)
-                if match_mins:
-                    wait_seconds = int(match_mins.group(1)) * 60
+        if text_content:
+            lower_content = text_content.lower()
+            if any(k in lower_content for k in rate_keywords):
+                wait_seconds = 0
+                # Look for "Try again in 12:19" or "12:19"
+                match_mm_ss = re.search(r'(?:Try again in|wait[^\d]*)?(\d+):(\d+)', text_content, re.IGNORECASE)
+                if match_mm_ss:
+                    mins = int(match_mm_ss.group(1))
+                    secs = int(match_mm_ss.group(2))
+                    wait_seconds = mins * 60 + secs
+                else:
+                    match_mins = re.search(r'(\d+)\s*(?:min|minute)', text_content, re.IGNORECASE)
+                    if match_mins:
+                        wait_seconds = int(match_mins.group(1)) * 60
+                    else:
+                        match_secs = re.search(r'(\d+)\s*(?:sec|second)', text_content, re.IGNORECASE)
+                        if match_secs:
+                            wait_seconds = int(match_secs.group(1))
 
-            return (wait_seconds, text_content)
+                # If wait_seconds was not found in message, default to 15-minute cooldown
+                if wait_seconds <= 0:
+                    wait_seconds = 900
+
+                return (wait_seconds, text_content)
     except Exception:
         pass
     return None
@@ -274,6 +303,15 @@ async def register_and_verify(
         await context.add_init_script(get_injection_script(fp))
 
         page = await context.new_page()
+
+        # Monitor network responses for HTTP 429 rate limit
+        rate_limit_intercepted = [None]
+
+        def _on_response(resp):
+            if resp.status == 429:
+                rate_limit_intercepted[0] = (900, f"HTTP 429 Too Many Requests from {resp.url}")
+
+        page.on("response", _on_response)
 
         try:
             # ── Step 3: Navigate to referral URL with retry logic ──
@@ -373,7 +411,7 @@ async def register_and_verify(
                     log(f"[!] Current URL: {page.url} — attempting to find form anyway")
 
             # Check if page is already showing a rate limit error banner
-            initial_rate_limit = await _check_rate_limit_error(page)
+            initial_rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
             if initial_rate_limit:
                 wait_sec, msg = initial_rate_limit
                 await _take_screenshot(page, "rate_limited_initial", log)
@@ -411,7 +449,7 @@ async def register_and_verify(
             otp_found = False
             for attempt in range(5):
                 # Check if server returned rate limit error
-                rate_limit = await _check_rate_limit_error(page)
+                rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
                 if rate_limit:
                     wait_sec, msg = rate_limit
                     await _take_screenshot(page, "rate_limited", log)
@@ -438,7 +476,7 @@ async def register_and_verify(
 
             if not otp_found:
                 # Final check for rate limit error banner
-                rate_limit = await _check_rate_limit_error(page)
+                rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
                 if rate_limit:
                     wait_sec, msg = rate_limit
                     await _take_screenshot(page, "rate_limited", log)
