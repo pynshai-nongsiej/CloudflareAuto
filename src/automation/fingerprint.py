@@ -91,12 +91,9 @@ _TIMEZONES = [
     {"tz": "America/Chicago", "locale": "en-US", "offset": -360},
     {"tz": "America/Denver", "locale": "en-US", "offset": -420},
     {"tz": "America/Los_Angeles", "locale": "en-US", "offset": -480},
-    {"tz": "Europe/London", "locale": "en-GB", "offset": 0},
-    {"tz": "Europe/Berlin", "locale": "de-DE", "offset": 60},
-    {"tz": "Europe/Paris", "locale": "fr-FR", "offset": 60},
-    {"tz": "Asia/Tokyo", "locale": "ja-JP", "offset": 540},
-    {"tz": "Australia/Sydney", "locale": "en-AU", "offset": 600},
-    {"tz": "America/Toronto", "locale": "en-CA", "offset": -300},
+    {"tz": "America/Phoenix", "locale": "en-US", "offset": -420},
+    {"tz": "America/Detroit", "locale": "en-US", "offset": -300},
+    {"tz": "America/Indiana/Indianapolis", "locale": "en-US", "offset": -300},
 ]
 
 
@@ -104,15 +101,6 @@ _TIMEZONES = [
 
 _LANGUAGE_SETS = [
     ["en-US", "en"],
-    ["en-US", "en", "es"],
-    ["en-GB", "en"],
-    ["en-CA", "en", "fr"],
-    ["en-AU", "en"],
-    ["de-DE", "de", "en"],
-    ["fr-FR", "fr", "en"],
-    ["es-ES", "es", "en"],
-    ["pt-BR", "pt", "en"],
-    ["ja-JP", "ja", "en"],
 ]
 
 

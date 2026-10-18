@@ -26,7 +26,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
-TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XUMZDQ5R}"
+TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XWUPKX2D}"
 METHOD="${METHOD:-auto}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 TMUX_SESSION="cloudflare-auto"
@@ -76,6 +76,55 @@ fi
 # ── Helper: Random integer in range [min, max] ───────────────
 rand_between() {
     echo $(( RANDOM % ($2 - $1 + 1) + $1 ))
+}
+
+# ── Helper: Detect screen resolution ─────────────────────────
+get_screen_geometry() {
+    local w="" h="" res=""
+    if command -v xdotool &>/dev/null; then
+        read -r w h < <(xdotool getdisplaygeometry 2>/dev/null || true)
+    fi
+    if [[ -z "$w" || -z "$h" ]] && command -v xrandr &>/dev/null; then
+        res=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}' | head -n1 || true)
+        if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+            w="${BASH_REMATCH[1]}"
+            h="${BASH_REMATCH[2]}"
+        fi
+    fi
+    if [[ -z "$w" || -z "$h" ]] && command -v xdpyinfo &>/dev/null; then
+        res=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2}' || true)
+        if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+            w="${BASH_REMATCH[1]}"
+            h="${BASH_REMATCH[2]}"
+        fi
+    fi
+    echo "${w:-1920} ${h:-1080}"
+}
+
+# ── Helper: Arrange / tile GUI terminal window ───────────────
+arrange_window() {
+    local label="$1" x="$2" y="$3" w="$4" h="$5"
+    (
+        for (( attempt=1; attempt<=15; attempt++ )); do
+            if command -v wmctrl &>/dev/null; then
+                if wmctrl -l 2>/dev/null | grep -F -q "$label"; then
+                    wmctrl -r "$label" -e "0,$x,$y,$w,$h" 2>/dev/null || true
+                    exit 0
+                fi
+            elif command -v xdotool &>/dev/null; then
+                local wid=""
+                wid=$(xdotool search --onlyvisible --name "$label" 2>/dev/null | tail -n1 || true)
+                if [[ -n "$wid" ]]; then
+                    xdotool windowmove "$wid" "$x" "$y" 2>/dev/null || true
+                    xdotool windowsize "$wid" "$w" "$h" 2>/dev/null || true
+                    exit 0
+                fi
+            else
+                exit 0
+            fi
+            sleep 0.2
+        done
+    ) &
 }
 
 # ── Helper: Detect available GUI terminal emulator ───────────
@@ -133,6 +182,42 @@ elif [[ "$SELECTED_METHOD" == "gui" ]]; then
     fi
 fi
 
+# ── Grid Geometry Calculation ────────────────────────────────
+read -r SCREEN_W SCREEN_H < <(get_screen_geometry)
+SCREEN_W="${SCREEN_W:-1920}"
+SCREEN_H="${SCREEN_H:-1080}"
+
+if (( NUM_WINDOWS <= 3 )); then
+    COLS=$NUM_WINDOWS
+    ROWS=1
+elif (( NUM_WINDOWS <= 6 )); then
+    COLS=3
+    ROWS=2
+elif (( NUM_WINDOWS <= 8 )); then
+    COLS=4
+    ROWS=2
+else
+    COLS=5
+    ROWS=$(( (NUM_WINDOWS + COLS - 1) / COLS ))
+fi
+
+MARGIN=8
+TASKBAR_OFFSET=32
+
+USABLE_W=$(( SCREEN_W - (COLS + 1) * MARGIN ))
+USABLE_H=$(( SCREEN_H - TASKBAR_OFFSET - (ROWS + 1) * MARGIN ))
+
+WIN_W=$(( USABLE_W / COLS ))
+WIN_H=$(( USABLE_H / ROWS ))
+
+# Character cell approximations for terminal geometry (standard ~9x18px)
+CHAR_W=9
+CHAR_H=18
+COLS_CHAR=$(( (WIN_W - 20) / CHAR_W ))
+if (( COLS_CHAR < 30 )); then COLS_CHAR=30; fi
+ROWS_CHAR=$(( (WIN_H - 40) / CHAR_H ))
+if (( ROWS_CHAR < 10 )); then ROWS_CHAR=10; fi
+
 # ── Banner ───────────────────────────────────────────────────
 echo "================================================================"
 echo "   CloudflareAuto -- Linux / Ubuntu Multi-Session Launcher"
@@ -140,7 +225,10 @@ echo "================================================================"
 echo "  Project   : $PROJECT_DIR"
 echo "  Python    : $PYTHON"
 echo "  Mode      : $MODE (--loop)"
-echo "  Workers   : $NUM_WINDOWS"
+echo "  Workers   : $NUM_WINDOWS  (${COLS}x${ROWS} grid)"
+if [[ "$SELECTED_METHOD" == "gui" ]]; then
+echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
+fi
 echo "  Target URL: $TARGET_URL"
 echo "  Backend   : $SELECTED_METHOD $([[ "$SELECTED_METHOD" == "gui" ]] && echo "($GUI_TERMINAL)" || true)"
 echo "================================================================"
@@ -151,6 +239,11 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     NUM=$(printf '%02d' $((i+1)))
     LABEL="Worker-${NUM}"
     WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
+
+    COL=$(( i % COLS ))
+    ROW=$(( i / COLS ))
+    X=$(( MARGIN + COL * (WIN_W + MARGIN) ))
+    Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
 
     # Stagger launch start times: Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s
     BASE_DELAY=$(( i * 30 ))
@@ -180,7 +273,7 @@ done
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"
-    echo "  [$LABEL] Generated worker script (delay: ${DELAY}s)"
+    echo "  [$LABEL]  grid=(${COL},${ROW})  pos=(${X},${Y})  size=${WIN_W}x${WIN_H}  delay=${DELAY}s"
 done
 
 echo ""
@@ -188,47 +281,83 @@ echo ""
 # ── Launch Execution ─────────────────────────────────────────
 
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
-    echo "[*] Launching ${NUM_WINDOWS} terminal windows using ${GUI_TERMINAL}..."
+    echo "[*] Launching ${NUM_WINDOWS} terminal windows arranged in a ${COLS}x${ROWS} grid using ${GUI_TERMINAL}..."
+
+    if ! command -v wmctrl &>/dev/null && ! command -v xdotool &>/dev/null; then
+        echo "  ℹ️  Tip: For precise pixel window snapping on GNOME/Ubuntu, install wmctrl:"
+        echo "     sudo apt-get install -y wmctrl"
+    fi
 
     for (( i=0; i<NUM_WINDOWS; i++ )); do
         NUM=$(printf '%02d' $((i+1)))
         LABEL="Worker-${NUM}"
         WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
 
+        COL=$(( i % COLS ))
+        ROW=$(( i / COLS ))
+        X=$(( MARGIN + COL * (WIN_W + MARGIN) ))
+        Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
+
         case "$GUI_TERMINAL" in
             gnome-terminal)
-                gnome-terminal --title="${LABEL}" -- bash "${WORKER_SCRIPT}" &
+                gnome-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -- bash "${WORKER_SCRIPT}" &
                 ;;
             xfce4-terminal)
-                xfce4-terminal --title="${LABEL}" -e "bash ${WORKER_SCRIPT}" &
+                xfce4-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "bash ${WORKER_SCRIPT}" &
                 ;;
             terminator)
-                terminator -T "${LABEL}" -e "bash ${WORKER_SCRIPT}" &
+                terminator -T "${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e "bash ${WORKER_SCRIPT}" &
                 ;;
             tilix)
-                tilix -t "${LABEL}" -e "bash ${WORKER_SCRIPT}" &
+                tilix -t "${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "bash ${WORKER_SCRIPT}" &
                 ;;
             konsole)
-                konsole -p tabtitle="${LABEL}" -e bash "${WORKER_SCRIPT}" &
+                konsole -p tabtitle="${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e bash "${WORKER_SCRIPT}" &
                 ;;
             alacritty)
-                alacritty --title "${LABEL}" -e bash "${WORKER_SCRIPT}" &
+                alacritty --title "${LABEL}" --geometry "${COLS_CHAR}x${ROWS_CHAR}" --position "${X}" "${Y}" -e bash "${WORKER_SCRIPT}" &
                 ;;
             kitty)
-                kitty --title "${LABEL}" bash "${WORKER_SCRIPT}" &
+                kitty --title "${LABEL}" -o "initial_window_width=${WIN_W}" -o "initial_window_height=${WIN_H}" bash "${WORKER_SCRIPT}" &
                 ;;
             xterm|x-terminal-emulator)
-                "$GUI_TERMINAL" -title "${LABEL}" -e bash "${WORKER_SCRIPT}" &
+                "$GUI_TERMINAL" -title "${LABEL}" -geometry "${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e bash "${WORKER_SCRIPT}" &
                 ;;
             *)
                 bash "${WORKER_SCRIPT}" &
                 ;;
         esac
-        sleep 0.3
+
+        # Asynchronously align window with wmctrl/xdotool once spawned
+        arrange_window "$LABEL" "$X" "$Y" "$WIN_W" "$WIN_H"
+
+        sleep 0.4
     done
 
+    # Final pass to ensure all windows are firmly snapped into the grid
+    if command -v wmctrl &>/dev/null || command -v xdotool &>/dev/null; then
+        sleep 1
+        for (( i=0; i<NUM_WINDOWS; i++ )); do
+            NUM=$(printf '%02d' $((i+1)))
+            LABEL="Worker-${NUM}"
+            COL=$(( i % COLS ))
+            ROW=$(( i / COLS ))
+            X=$(( MARGIN + COL * (WIN_W + MARGIN) ))
+            Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
+            if command -v wmctrl &>/dev/null; then
+                wmctrl -r "$LABEL" -e "0,$X,$Y,$WIN_W,$WIN_H" 2>/dev/null || true
+            elif command -v xdotool &>/dev/null; then
+                wid=$(xdotool search --onlyvisible --name "$LABEL" 2>/dev/null | tail -n1 || true)
+                if [[ -n "$wid" ]]; then
+                    xdotool windowmove "$wid" "$X" "$Y" 2>/dev/null || true
+                    xdotool windowsize "$wid" "$WIN_W" "$WIN_H" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+
     echo ""
-    echo "  [+] All ${NUM_WINDOWS} windows launched."
+    echo "  [+] All ${NUM_WINDOWS} windows launched and arranged in a ${COLS}x${ROWS} grid."
     echo "  👉 To stop all workers at any time, run:"
     echo "     ./launch_multi_linux.sh stop  (or pkill -f 'main.py')"
 
