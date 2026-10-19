@@ -45,8 +45,8 @@ echo.
 echo Select an option:
 echo.
 echo   [1] Direct Mode - Single Run (Headless)
-echo   [2] Unlimited Loop - 3-6 min delay with proactive cool-offs (Headless)
-echo   [3] Counted Loop - Run N registrations with 3-6 min delay (Headless)
+echo   [2] Unlimited Loop - 1-2 min delay (Headless)
+echo   [3] Counted Loop - Run N registrations with 1-2 min delay (Headless)
 echo   [4] Multi-Window Grid Launcher (5 Tiled Workers with Staggered Delays)
 echo   [5] Stop All Running Workers
 echo   [6] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
@@ -80,14 +80,14 @@ goto pause_and_menu
 :opt_loop_unlimited
 echo.
 echo [*] Starting Unlimited Loop Mode (Headless) - Press Ctrl+C to stop...
-python main.py --mode direct --loop --delay-min 180 --delay-max 360 --referrer random --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --delay-min 60 --delay-max 120 --referrer random --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
 echo [*] Running %NUM_RUNS% registrations (Headless)...
-python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 180 --delay-max 360 --referrer random --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 60 --delay-max 120 --referrer random --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_multi

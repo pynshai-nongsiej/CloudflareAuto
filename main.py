@@ -129,32 +129,14 @@ def parse_args():
     parser.add_argument(
         "--delay-min",
         type=int,
-        default=180,
-        help="Minimum delay in seconds between loop runs (default: 180 = 3 min)",
+        default=60,
+        help="Minimum delay in seconds between loop runs (default: 60 = 1 min)",
     )
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=360,
-        help="Maximum delay in seconds between loop runs (default: 360 = 6 min)",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=3,
-        help="Number of registrations per batch before taking a proactive human cool-off break (default: 3, 0=disabled)",
-    )
-    parser.add_argument(
-        "--batch-pause-min",
-        type=int,
-        default=300,
-        help="Minimum proactive cool-off break in seconds after each batch (default: 300 = 5 min)",
-    )
-    parser.add_argument(
-        "--batch-pause-max",
-        type=int,
-        default=600,
-        help="Maximum proactive cool-off break in seconds after each batch (default: 600 = 10 min)",
+        default=120,
+        help="Maximum delay in seconds between loop runs (default: 120 = 2 min)",
     )
     parser.add_argument(
         "--referrer",
@@ -276,30 +258,24 @@ def print_result(result: dict, run_number: int = 0):
 
 
 async def run_loop(args):
-    """Run the automation in an unlimited (or counted) loop with proactive pacing & random delays."""
+    """Run the automation in an unlimited (or counted) loop with human pacing (1-2 min delays)."""
     max_runs = args.count if args.count > 0 else float('inf')
     delay_min = args.delay_min
     delay_max = args.delay_max
-    batch_size = getattr(args, "batch_size", 3)
-    batch_pause_min = getattr(args, "batch_pause_min", 300)
-    batch_pause_max = getattr(args, "batch_pause_max", 600)
     referrer_mode = getattr(args, "referrer", "random")
 
     run_number = 0
     successes = 0
     failures = 0
-    batch_count = 0
     start_time = time.time()
 
     print("=" * 60)
-    print("  🔄 TENBOX AUTOMATION LOOP -- PROACTIVE SELF-PACING")
+    print("  🔄 TENBOX AUTOMATION LOOP -- HUMAN PACING")
     print("=" * 60)
     print(f"  Mode:         {args.mode}")
     print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
     delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
-    print(f"  Run Delay:    {delay_desc} between runs")
-    if batch_size > 0:
-        print(f"  Batch Break:  Every {batch_size} registrations -> {batch_pause_min//60}-{batch_pause_max//60} min cool-off")
+    print(f"  Pacing:       {delay_desc} between runs")
     print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
     print(f"  Target URL:   {args.target_url}")
     print(f"  Account:      {args.target_email}")
@@ -323,35 +299,7 @@ async def run_loop(args):
             try:
                 result = await run_direct_single(args)
                 successes += 1
-                batch_count += 1
                 print_result(result, run_number)
-
-                # ── Proactive Self-Rate-Limiting (Batch Cool-Off) ──
-                if run_number < max_runs and batch_size > 0 and batch_count >= batch_size:
-                    batch_pause = random.uniform(batch_pause_min, batch_pause_max)
-                    batch_count = 0
-                    p_mins = int(batch_pause // 60)
-                    p_secs = int(batch_pause % 60)
-                    resume_p = time.strftime("%H:%M:%S", time.localtime(time.time() + batch_pause))
-
-                    print(f"\n{'=' * 60}")
-                    print(f"  ☕ PROACTIVE PACING: Batch of {batch_size} registrations completed!")
-                    print(f"     Taking a {batch_pause:.0f}s (~{p_mins}m {p_secs}s) human cool-off break")
-                    print(f"     to prevent rate limits and mimic organic referral traffic.")
-                    print(f"     Will resume at: {resume_p}")
-                    print(f"{'=' * 60}")
-
-                    rem_p = batch_pause
-                    while rem_p > 0:
-                        step_p = min(rem_p, 60)
-                        await asyncio.sleep(step_p)
-                        rem_p -= step_p
-                        if rem_p > 0:
-                            rp_m = int(rem_p // 60)
-                            rp_s = int(rem_p % 60)
-                            print(f"  ☕ [Proactive Cool-Off] {rp_m}m {rp_s}s remaining (resumes at {resume_p})...")
-                    print(f"\n  ✅ Proactive break complete! Continuing next registration batch...\n")
-                    continue
 
             except KeyboardInterrupt:
                 raise

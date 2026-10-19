@@ -20,8 +20,8 @@ param(
     [int]$NumWindows = 5,
     [string]$Mode = "direct",
     [string]$TargetUrl = "",
-    [int]$DelayMin = 180,
-    [int]$DelayMax = 360,
+    [int]$DelayMin = 60,
+    [int]$DelayMax = 120,
     [string]$Referrer = "random",
     [string]$Account = ""
 )
@@ -232,8 +232,7 @@ Write-Host "  Python    : $Python"
 Write-Host "  Mode      : $Mode (--loop)"
 Write-Host "  Workers   : $NumWindows ($($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
-Write-Host "  Delay     : $DelayMin-$DelayMax`s between runs"
-Write-Host "  Pacing    : Proactive 5-10m cool-off every 3 registrations"
+Write-Host "  Pacing    : $DelayMin-$DelayMax`s (1-2 min) between runs"
 Write-Host "  Referrer  : $Referrer (Instagram, Telegram, Facebook, YouTube, etc.)"
 Write-Host "  Target    : $TargetEmail"
 if (-not $RoundRobin) {
