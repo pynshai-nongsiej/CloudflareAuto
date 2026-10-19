@@ -413,17 +413,18 @@ async def register_and_verify(
             current_url = page.url
             log(f"[*] Page loaded, current URL: {current_url}")
 
-            # Human visual pause & slight natural mouse movement
-            log(f"[*] Simulating human landing review from {ref_info['platform'] if ref_info else 'referral'}...")
-            await asyncio.sleep(random.uniform(1.8, 3.2))
-            try:
-                await page.mouse.move(random.randint(150, 500), random.randint(150, 400))
-                await asyncio.sleep(random.uniform(0.3, 0.7))
-                await page.evaluate(f"window.scrollBy(0, {random.randint(120, 240)})")
-                await asyncio.sleep(random.uniform(0.4, 0.8))
-                await page.evaluate("window.scrollBy(0, -60)")
-            except Exception:
-                pass
+            # Human visual pause & slight natural mouse movement (macOS only)
+            if sys.platform == "darwin":
+                log(f"[*] Simulating human landing review from {ref_info['platform'] if ref_info else 'referral'}...")
+                await asyncio.sleep(random.uniform(1.8, 3.2))
+                try:
+                    await page.mouse.move(random.randint(150, 500), random.randint(150, 400))
+                    await asyncio.sleep(random.uniform(0.3, 0.7))
+                    await page.evaluate(f"window.scrollBy(0, {random.randint(120, 240)})")
+                    await asyncio.sleep(random.uniform(0.4, 0.8))
+                    await page.evaluate("window.scrollBy(0, -60)")
+                except Exception:
+                    pass
 
             # Determine canonical login URL from referral code
             ref_code = None
