@@ -225,9 +225,5 @@ If you want to test the Cloudflare TempMail worker on Windows:
 ### Q4: How do I stop an unlimited loop?
 - Simply press `Ctrl + C` in the console window. The script will catch the interrupt gracefully and display a summary of successful and failed runs.
 
-### Q5: Where are debug screenshots stored on Windows?
-- If an error or unexpected screen occurs during automation, screenshots are automatically saved to your Windows temporary directory under:
-  ```text
-  %TEMP%\websurfer_screenshots\
-  (Usually C:\Users\<Username>\AppData\Local\Temp\websurfer_screenshots\)
-  ```
+### Q5: How are debug screenshots handled?
+- Screenshots are disabled by default and cleaned up automatically upon session completion to prevent clogging disk storage. Temporary troubleshooting files are automatically purged when workers start, finish, or stop.

@@ -61,9 +61,13 @@ if ($Action -eq "stop" -or $args -contains "stop") {
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     } catch {}
 
-    # Clean up worker batch files
+    # Clean up worker batch files and screenshots
     if (Test-Path $TmpDirWorkers) {
         Remove-Item -Path $TmpDirWorkers -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $tempScreenshots = Join-Path $env:TEMP "websurfer_screenshots"
+    if (Test-Path $tempScreenshots) {
+        Remove-Item -Path $tempScreenshots -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Write-Host "  [+] All CloudflareAuto workers stopped." -ForegroundColor Green
@@ -142,11 +146,15 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     }
 }
 
-# ── Clean up & prepare worker directory ──────────────────────
+# ── Clean up & prepare worker directory and screenshots ──────
 if (Test-Path $TmpDirWorkers) {
     Remove-Item -Path $TmpDirWorkers -Recurse -Force -ErrorAction SilentlyContinue
 }
 New-Item -ItemType Directory -Path $TmpDirWorkers -Force | Out-Null
+$tempScreenshots = Join-Path $env:TEMP "websurfer_screenshots"
+if (Test-Path $tempScreenshots) {
+    Remove-Item -Path $tempScreenshots -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # ── Virtual environment detection ───────────────────────────
 $Python = "python"

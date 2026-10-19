@@ -253,16 +253,33 @@ async def _check_rate_limit_error(page: Page, intercepted: Optional[list] = None
     return None
 
 
-async def _take_screenshot(page: Page, label: str, log: Callable) -> Optional[str]:
-    """Take a debug screenshot and return the path."""
+def cleanup_all_screenshots() -> None:
+    """Remove any leftover debug screenshots from temp directory to prevent clogging storage."""
+    import tempfile
+    import shutil
+    from pathlib import Path
+
+    try:
+        screenshot_dir = Path(tempfile.gettempdir()) / "websurfer_screenshots"
+        if screenshot_dir.exists():
+            shutil.rmtree(screenshot_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+
+async def _take_screenshot(page: Page, label: str, log: Callable, save: bool = False) -> Optional[str]:
+    """Take a debug screenshot only if explicitly requested, otherwise avoid clogging disk."""
+    if not save:
+        return None
+
     import time
     import tempfile
     from pathlib import Path
-    
-    screenshot_dir = Path(tempfile.gettempdir()) / "websurfer_screenshots"
-    screenshot_dir.mkdir(parents=True, exist_ok=True)
-    path = str(screenshot_dir / f"websurfer_{label}_{int(time.time())}.png")
+
     try:
+        screenshot_dir = Path(tempfile.gettempdir()) / "websurfer_screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        path = str(screenshot_dir / f"websurfer_{label}_{int(time.time())}.png")
         await page.screenshot(path=path)
         log(f"[!] Screenshot saved: {path}")
         return path
@@ -278,17 +295,10 @@ async def register_and_verify(
     log_fn: Optional[Callable[[str], None]] = None,
     target_url: Optional[str] = None,
     referrer: Optional[str] = "random",
+    save_screenshots: bool = False,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
-
-    Flow:
-    1. Generates a randomized browser fingerprint and social media referrer.
-    2. Creates a temporary email inbox.
-    3. Navigates to the referral URL with authentic Referer headers (Instagram, Telegram, Facebook, YouTube, etc.).
-    4. Simulates realistic human browsing before clicking CTA.
-    5. Enters email and clicks Send OTP.
-    6. Waits for OTP page, polls inbox for the verification code.
-    7. Enters OTP digits and verifies dashboard redirection.
+    Screenshots are disabled by default and cleaned up automatically to avoid clogging storage.
 
     Returns:
         dict with success status, email, otp, final URL, cookies, referrer, and storage data.
@@ -700,3 +710,5 @@ async def register_and_verify(
                 await browser.close()
             except Exception:
                 pass
+            # Always delete any debug screenshots to prevent clogging storage
+            cleanup_all_screenshots()

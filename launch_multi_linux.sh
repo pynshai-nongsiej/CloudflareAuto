@@ -68,6 +68,7 @@ if [[ "${1:-}" == "stop" ]]; then
 
     # Terminate any remaining main.py instances
     pkill -f 'main.py.*--loop' 2>/dev/null || true
+    rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
     echo "  [+] All workers stopped."
     echo "================================================================"
     exit 0
@@ -141,8 +142,9 @@ else
     TARGET_EMAIL="$ACCOUNT_1_EMAIL"
 fi
 
-# ── Clean up old worker directory ────────────────────────────
+# ── Clean up old worker directory and screenshots ────────────
 rm -rf "$TMPDIR_WORKERS"
+rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
 mkdir -p "$TMPDIR_WORKERS"
 
 # ── Virtual environment detection ───────────────────────────

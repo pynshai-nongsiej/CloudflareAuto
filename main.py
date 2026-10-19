@@ -44,7 +44,7 @@ if sys.platform == "win32":
             pass
 
 from src.automation.tempmail_client import TempMailClient
-from src.automation.playwright_automation import register_and_verify, RateLimitError
+from src.automation.playwright_automation import register_and_verify, RateLimitError, cleanup_all_screenshots
 from src.automation.browser_use_automation import create_browser_use_agent, get_default_llm
 
 
@@ -427,13 +427,17 @@ async def run_direct(args):
 
 def main():
     args = parse_args()
+    cleanup_all_screenshots()
 
-    if args.loop:
-        asyncio.run(run_loop(args))
-    elif args.mode == "browser-use":
-        asyncio.run(run_browser_use(args))
-    else:
-        asyncio.run(run_direct(args))
+    try:
+        if args.loop:
+            asyncio.run(run_loop(args))
+        elif args.mode == "browser-use":
+            asyncio.run(run_browser_use(args))
+        else:
+            asyncio.run(run_direct(args))
+    finally:
+        cleanup_all_screenshots()
 
 
 if __name__ == "__main__":

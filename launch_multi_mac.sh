@@ -46,6 +46,7 @@ if [[ "${1:-}" == "stop" ]]; then
     echo "================================================================"
     pkill -f 'main.py' 2>/dev/null || true
     rm -rf "$TMPDIR_WORKERS"
+    rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
     echo "  [+] All CloudflareAuto workers stopped."
     echo "================================================================"
     exit 0
@@ -119,8 +120,9 @@ else
     TARGET_EMAIL="$ACCOUNT_1_EMAIL"
 fi
 
-# Clean up any old worker scripts
+# Clean up any old worker scripts and temporary screenshots
 rm -rf "$TMPDIR_WORKERS"
+rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
 mkdir -p "$TMPDIR_WORKERS"
 
 # Virtual-env detection (prefer .venv, then venv)
