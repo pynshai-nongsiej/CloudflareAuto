@@ -55,32 +55,55 @@ async def _human_type(page: Page, selector_or_element, text: str, log: Callable)
             await asyncio.sleep(random.uniform(0.1, 0.3))
 
 
-async def _wait_for_email_input(page: Page, timeout: int = 20000) -> Any:
-    """Wait for the email input to appear, trying multiple selectors."""
-    selectors = [
-        'input[type="email"]',
-        'input[name="email"]',
-        'input[placeholder*="@"]',
-        'input[placeholder*="email" i]',
-        'input[placeholder*="Email" i]',
-        'input[autocomplete="email"]',
-    ]
+async def _wait_for_email_input(page: Page, timeout: int = 25000) -> Any:
+    """Wait for the email input to appear, trying multiple selectors and self-healing if stuck."""
+    selector_str = (
+        'input[type="email"], '
+        'input[name="email"], '
+        'input[placeholder*="@"], '
+        'input[placeholder*="email" i], '
+        'input[placeholder*="Email" i], '
+        'input[autocomplete="email"]'
+    )
 
-    for selector in selectors:
+    # 1. Fast path: Wait for standard email input
+    try:
+        el = await page.wait_for_selector(selector_str, timeout=min(timeout // 2, 10000), state="visible")
+        if el and await el.is_visible():
+            return el
+    except Exception:
+        pass
+
+    # 2. Self-healing: if still on /referral/ page, navigate to login page with referral code
+    if "/referral/" in page.url or "/login" not in page.url:
+        import re
+        code_match = re.search(r'/referral/([a-zA-Z0-9_-]+)', page.url)
+        code = code_match.group(1) if code_match else "XWUPKX2D"
+        target_login = f"https://websurfer.1024tenbox.com/login?referralCode={code}"
         try:
-            el = await page.wait_for_selector(selector, timeout=timeout // len(selectors))
+            await page.goto(target_login, wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(1.0)
+            el = await page.wait_for_selector(selector_str, timeout=12000, state="visible")
             if el and await el.is_visible():
                 return el
         except Exception:
-            continue
+            pass
 
-    # Fallback: find any visible text/email input
+    # 3. Fallback: Any visible text/email input on the page
     inputs = await page.query_selector_all('input[type="text"], input[type="email"], input:not([type])')
     for inp in inputs:
         if await inp.is_visible():
             return inp
 
-    raise TimeoutError("Could not find email input field on the page")
+    # 4. Final attempt
+    try:
+        el = await page.wait_for_selector('input', timeout=5000, state="visible")
+        if el and await el.is_visible():
+            return el
+    except Exception:
+        pass
+
+    raise TimeoutError(f"Could not find email input field on the page (current URL: {page.url})")
 
 
 async def _find_send_otp_button(page: Page) -> Any:
@@ -392,69 +415,77 @@ async def register_and_verify(
             except Exception:
                 pass
 
-            # The referral page is a landing page with a CTA button.
-            # We need to click "Get started free" to go to the login form.
-            cta_clicked = False
-            cta_selectors = [
-                'a:has-text("Get started free")',
-                'button:has-text("Get started free")',
-                'a:has-text("Get started")',
-                'button:has-text("Get started")',
-                'a:has-text("Sign up")',
-                'button:has-text("Sign up")',
-                'a:has-text("Join")',
-                'button:has-text("Join")',
-                'a:has-text("Start")',
-            ]
+            # Determine canonical login URL from referral code
+            ref_code = None
+            code_m = re.search(r'/referral/([a-zA-Z0-9_-]+)', url)
+            if code_m:
+                ref_code = code_m.group(1)
+            elif "referralCode=" in url:
+                code_m = re.search(r'referralCode=([a-zA-Z0-9_-]+)', url)
+                if code_m:
+                    ref_code = code_m.group(1)
 
-            for sel in cta_selectors:
-                try:
-                    btn = await page.query_selector(sel)
-                    if btn and await btn.is_visible():
-                        log(f"[*] Found CTA button, clicking: {sel}")
-                        await asyncio.sleep(random.uniform(0.5, 1.5))
-                        await btn.click()
-                        cta_clicked = True
-                        break
-                except Exception:
-                    continue
+            canonical_login_url = (
+                f"https://websurfer.1024tenbox.com/login?referralCode={ref_code}"
+                if ref_code
+                else "https://websurfer.1024tenbox.com/login"
+            )
 
-            if not cta_clicked:
-                # Fallback: try clicking any prominent button/link on the page
-                log("[*] CTA button not found by text, trying prominent links...")
-                links = await page.query_selector_all('a[href*="login"], a[href*="signup"], a[href*="register"]')
-                for link in links:
-                    if await link.is_visible():
-                        log(f"[*] Clicking link to login/signup...")
-                        await link.click()
-                        cta_clicked = True
-                        break
+            # If not already on /login, try clicking CTA button or fallback directly to canonical login
+            if "/login" not in page.url:
+                cta_clicked = False
+                cta_selectors = [
+                    'a:has-text("Get started free")',
+                    'button:has-text("Get started free")',
+                    'a[href*="login"]',
+                    'a:has-text("Get started")',
+                    'button:has-text("Get started")',
+                    'a:has-text("Sign up")',
+                    'button:has-text("Sign up")',
+                    'a:has-text("Join")',
+                    'button:has-text("Join")',
+                    'a:has-text("Start")',
+                ]
 
-            if cta_clicked:
-                # Wait for navigation to login page
-                log("[*] Waiting for login form to load...")
-                await asyncio.sleep(2)
-                try:
-                    await page.wait_for_selector(
-                        'input[type="email"], input[name="email"], input[placeholder*="@"]',
-                        timeout=15000,
-                    )
-                    log(f"[+] Login form loaded at: {page.url}")
-                except Exception:
-                    await _take_screenshot(page, "after_cta_click", log)
-                    log(f"[!] Login form not found after CTA click. URL: {page.url}")
-            else:
-                # Maybe we're already on the login page or the form is inline
-                log("[*] No CTA found — checking if login form is already present...")
+                for sel in cta_selectors:
+                    try:
+                        btn = await page.wait_for_selector(sel, timeout=3000, state="visible")
+                        if btn:
+                            log(f"[*] Found CTA button, clicking: {sel}")
+                            await asyncio.sleep(random.uniform(0.5, 1.2))
+                            await btn.click()
+                            cta_clicked = True
+                            break
+                    except Exception:
+                        continue
+
+                # Check if login form appeared after CTA click
+                login_form_ready = False
                 try:
                     await page.wait_for_selector(
                         'input[type="email"], input[name="email"], input[placeholder*="@"]',
-                        timeout=10000,
+                        timeout=5000,
+                        state="visible"
                     )
-                    log(f"[+] Login form detected at: {page.url}")
+                    login_form_ready = True
+                    log(f"[+] Login form ready at: {page.url}")
                 except Exception:
-                    await _take_screenshot(page, "no_login_form", log)
-                    log(f"[!] Current URL: {page.url} — attempting to find form anyway")
+                    pass
+
+                # FAILSAFE for Linux / slow SPAs: If CTA didn't transition, navigate directly to login URL
+                if not login_form_ready or "/login" not in page.url:
+                    log(f"[*] Navigating directly to login page: {canonical_login_url}")
+                    try:
+                        await page.goto(canonical_login_url, wait_until="domcontentloaded", timeout=20000)
+                        await page.wait_for_selector(
+                            'input[type="email"], input[name="email"], input[placeholder*="@"]',
+                            timeout=15000,
+                            state="visible"
+                        )
+                        log(f"[+] Login form ready at: {page.url}")
+                    except Exception as nav_e:
+                        await _take_screenshot(page, "login_load_failed", log)
+                        log(f"[!] Login form load warning: {nav_e}")
 
             # Check if page is already showing a rate limit error banner
             initial_rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
@@ -469,10 +500,15 @@ async def register_and_verify(
             email_input = await _wait_for_email_input(page)
             log(f"[*] Found email input, entering: {email_address}")
 
-            # Clear any existing content first
+            # Clear any existing content first (Linux uses Control+a, macOS uses Meta+a)
             await email_input.click()
-            await page.keyboard.press("Meta+a")
+            select_all_key = "Meta+a" if sys.platform == "darwin" else "Control+a"
+            await page.keyboard.press(select_all_key)
             await page.keyboard.press("Backspace")
+            try:
+                await email_input.fill("")
+            except Exception:
+                pass
             await asyncio.sleep(0.2)
 
             # Type like a human

@@ -47,40 +47,39 @@ _UA_DATABASE: List[Dict[str, str]] = [
     {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36", "platform": "darwin", "browser": "chrome"},
     {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36", "platform": "darwin", "browser": "chrome"},
     # Chrome on Linux
-    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", "platform": "linux", "browser": "chrome"},
-    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36", "platform": "linux", "browser": "chrome"},
-    # Firefox
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0", "platform": "win32", "browser": "firefox"},
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:135.0) Gecko/20100101 Firefox/135.0", "platform": "darwin", "browser": "firefox"},
-    {"ua": "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0", "platform": "linux", "browser": "firefox"},
-    # Safari
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15", "platform": "darwin", "browser": "safari"},
+    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36", "platform": "linux", "browser": "chrome"},
+    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36", "platform": "linux", "browser": "chrome"},
+    {"ua": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", "platform": "linux", "browser": "chrome"},
     # Edge
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0", "platform": "win32", "browser": "edge"},
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0", "platform": "darwin", "browser": "edge"},
+    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0", "platform": "win32", "browser": "edge"},
+    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0", "platform": "darwin", "browser": "edge"},
 ]
 
 
 # ─── GPU Profiles ─────────────────────────────────────────────────────────────
 
 _GPU_PROFILES = [
+    # Windows DirectX (ANGLE)
     {"vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0)"},
-    {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)"},
-    {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0)"},
     {"vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD, Radeon(TM) RX 580 Series Direct3D11 vs_5_0 ps_5_0)"},
-    {"vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0)"},
+    # macOS (Apple Silicon / Metal / Intel)
     {"vendor": "Apple Inc.", "renderer": "Apple M1"},
     {"vendor": "Apple Inc.", "renderer": "Apple M2"},
     {"vendor": "Apple Inc.", "renderer": "Apple M3"},
     {"vendor": "Apple Inc.", "renderer": "Apple M1 Pro"},
     {"vendor": "Intel Inc.", "renderer": "Intel(R) Iris(TM) Plus Graphics 640"},
-    {"vendor": "Intel Inc.", "renderer": "Intel(R) Iris(TM) Plus Graphics 655"},
+    # Linux (Mesa / Vulkan / NVIDIA OpenGL)
+    {"vendor": "Intel Open Source Technology Center", "renderer": "Mesa DRI Intel(R) UHD Graphics 620 (KBL GT2)"},
+    {"vendor": "Intel", "renderer": "Mesa Intel(R) UHD Graphics (CML GT2)"},
+    {"vendor": "X.Org", "renderer": "AMD Radeon RX 580 Series (radeonsi, polaris10, LLVM 15.0.7, DRM 3.49)"},
+    {"vendor": "NVIDIA Corporation", "renderer": "NVIDIA GeForce GTX 1060 6GB/PCIe/SSE2"},
+    {"vendor": "Google Inc. (Google)", "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)"},
 ]
 
 
@@ -204,8 +203,10 @@ def generate_fingerprint(
     # 3. Pick a GPU profile consistent with the platform
     if nav_platform == "MacIntel":
         gpu_pool = [p for p in _GPU_PROFILES if "Apple" in p["vendor"] or "Intel" in p["vendor"]]
+    elif nav_platform == "Linux x86_64":
+        gpu_pool = [p for p in _GPU_PROFILES if "Mesa" in p["renderer"] or "Vulkan" in p["renderer"] or "X.Org" in p["vendor"] or "SSE2" in p["renderer"]]
     elif nav_platform == "Win32":
-        gpu_pool = [p for p in _GPU_PROFILES if "Google" in p["vendor"] or "NVIDIA" in p["vendor"] or "AMD" in p["vendor"]]
+        gpu_pool = [p for p in _GPU_PROFILES if "Direct3D11" in p["renderer"]]
     else:
         gpu_pool = _GPU_PROFILES
     
@@ -710,21 +711,26 @@ def get_playwright_context_options(fp: BrowserFingerprint) -> Dict[str, Any]:
 
 def get_launch_args() -> List[str]:
     """Return Chromium launch arguments for stealth operation."""
-    return [
+    import sys
+    args = [
         "--disable-blink-features=AutomationControlled",
         "--disable-infobars",
         "--disable-dev-shm-usage",
         "--no-first-run",
         "--no-default-browser-check",
-        "--hide-scrollbars",
         "--mute-audio",
         "--disable-background-timer-throttling",
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
-        "--disable-features=IsolateOrigins,site-per-process,TranslateUI",
         "--disable-ipc-flooding-protection",
         "--no-sandbox",
     ]
+    if sys.platform == "linux":
+        args.extend([
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+        ])
+    return args
 
 
 # ─── Convenience wrapper ─────────────────────────────────────────────────────
