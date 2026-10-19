@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from typing import Any, Optional
@@ -11,6 +12,7 @@ from browser_use import (
     Controller,
 )
 from .tempmail_client import TempMailClient
+from .referrers import get_random_referrer
 from .fingerprint import (
     generate_fingerprint,
     get_injection_script,
@@ -131,10 +133,22 @@ def create_browser_use_agent(
     )
     target_link = target_url or default_referral
 
+    # Select simulated inbound social referrer
+    ref_info = None
+    if referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
+        preferred = None if str(referrer).lower() in ("random", "auto") else str(referrer).lower()
+        ref_info = get_random_referrer(target_link, preferred_platform=preferred)
+
+    ref_task_line = (
+        f"2. Navigate to {target_link} simulating an incoming referral from {ref_info['platform']} ({ref_info['url']}).\n"
+        if ref_info else
+        f"2. Navigate to {target_link} (this is a referral landing page).\n"
+    )
+
     default_task = (
         "Perform account registration and OTP verification on TenBox Websurfer:\n"
         "1. First, call `create_temporary_email` to generate a new disposable email address.\n"
-        f"2. Navigate to {target_link} (this is a referral landing page).\n"
+        f"{ref_task_line}"
         "3. On the referral page, click the 'Get started free' button to go to the login/signup form.\n"
         "4. Wait for the login form to appear, then type the generated email address into the email input field.\n"
         "5. Click the 'Send OTP' button.\n"
@@ -146,14 +160,27 @@ def create_browser_use_agent(
 
     # Configure BrowserSession with randomized fingerprint
     ctx_options = get_playwright_context_options(fp)
+    init_scripts = [get_injection_script(fp)]
+    if ref_info:
+        init_scripts.append(f"""
+        (() => {{
+            try {{
+                Object.defineProperty(document, 'referrer', {{
+                    get: () => {json.dumps(ref_info['url'])},
+                    configurable: true
+                }});
+            }} catch(e) {{}}
+        }})();
+        """)
+
     browser_session = BrowserSession(
         headless=not headed,
         browser_args=get_launch_args(),
         # Pass fingerprint-derived context options
         user_agent=fp.user_agent,
         viewport=ctx_options.get("viewport"),
-        # Inject the comprehensive fingerprint spoof script
-        init_script=get_injection_script(fp),
+        # Inject the comprehensive fingerprint spoof script & referrer
+        init_script="\n".join(init_scripts),
     )
 
     agent = Agent(

@@ -9,6 +9,8 @@ from .fingerprint import (
     get_launch_args,
 )
 
+from .referrers import get_random_referrer, REFERRER_POOLS
+
 __all__ = [
     "TempMailClient",
     "register_and_verify",
@@ -20,5 +22,7 @@ __all__ = [
     "get_injection_script",
     "get_playwright_context_options",
     "get_launch_args",
+    "get_random_referrer",
+    "REFERRER_POOLS",
 ]
 

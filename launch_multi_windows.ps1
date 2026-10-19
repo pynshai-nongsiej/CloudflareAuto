@@ -19,9 +19,11 @@ param(
     [string]$Action = "start",
     [int]$NumWindows = 5,
     [string]$Mode = "direct",
-    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
-    [int]$DelayMin = 120,
-    [int]$DelayMax = 240
+    [string]$TargetUrl = "",
+    [int]$DelayMin = 180,
+    [int]$DelayMax = 360,
+    [string]$Referrer = "random",
+    [string]$Account = ""
 )
 
 # Ensure UTF-8 output encoding in PowerShell console
@@ -30,6 +32,16 @@ param(
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 $TmpDirWorkers = Join-Path $env:TEMP "cloudflare_auto_workers"
+
+# Referral Account Presets
+$Account1Url = "https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+$Account1Email = "pn@gmail.com"
+
+$Account2Url = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+$Account2Email = "dd@gmail.com"
+
+$Account3Url = "https://websurfer.1024tenbox.com/referral/75H3QGGK"
+$Account3Email = "jn@gmail.com"
 
 # ── Stop Command ─────────────────────────────────────────────
 if ($Action -eq "stop" -or $args -contains "stop") {
@@ -57,6 +69,77 @@ if ($Action -eq "stop" -or $args -contains "stop") {
     Write-Host "  [+] All CloudflareAuto workers stopped." -ForegroundColor Green
     Write-Host "================================================================" -ForegroundColor Cyan
     exit 0
+}
+
+# ── Account Selection ────────────────────────────────────────
+$RoundRobin = $false
+$TargetEmail = ""
+
+# Handle parameter overrides if passed
+if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
+    $TargetUrl = $Account1Url
+    $TargetEmail = $Account1Email
+} elseif ($Account -eq "2" -or $Account -eq "dd" -or $Account -eq "dd@gmail.com") {
+    $TargetUrl = $Account2Url
+    $TargetEmail = $Account2Email
+} elseif ($Account -eq "3" -or $Account -eq "jn" -or $Account -eq "jn@gmail.com") {
+    $TargetUrl = $Account3Url
+    $TargetEmail = $Account3Email
+} elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute" -or $Account -eq "round-robin") {
+    $RoundRobin = $true
+    $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email)"
+    $TargetUrl = "Distributed across 3 accounts"
+} elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
+    $TargetEmail = "Custom URL"
+} else {
+    # Interactive prompt if running in interactive PowerShell
+    $isInteractive = $Host.UI.RawUI -ne $null -and [Environment]::UserInteractive
+    if ($isInteractive) {
+        Write-Host "================================================================" -ForegroundColor Cyan
+        Write-Host "   CloudflareAuto -- Select Target Referral Account" -ForegroundColor Cyan
+        Write-Host "================================================================" -ForegroundColor Cyan
+        Write-Host "  [1] $Account1Email  ->  $Account1Url"
+        Write-Host "  [2] $Account2Email  ->  $Account2Url  (Default Windows)"
+        Write-Host "  [3] $Account3Email  ->  $Account3Url"
+        Write-Host "  [4] Custom URL    ->  [Enter your own referral link]"
+        Write-Host "  [5] Distribute    ->  Round-Robin across workers (Farms all accounts simultaneously)"
+        Write-Host "================================================================" -ForegroundColor Cyan
+        $choice = Read-Host "Select option [1-5, Enter for default 2]"
+        if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "2" }
+
+        switch ($choice.Trim().ToLower()) {
+            "1" {
+                $TargetUrl = $Account1Url
+                $TargetEmail = $Account1Email
+            }
+            "3" {
+                $TargetUrl = $Account3Url
+                $TargetEmail = $Account3Email
+            }
+            "4" {
+                $customInput = Read-Host "Enter custom referral URL"
+                if ([string]::IsNullOrWhiteSpace($customInput)) {
+                    $TargetUrl = $Account2Url
+                    $TargetEmail = $Account2Email
+                } else {
+                    $TargetUrl = $customInput.Trim()
+                    $TargetEmail = "Custom Account"
+                }
+            }
+            "5" {
+                $RoundRobin = $true
+                $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email)"
+                $TargetUrl = "Distributed across 3 accounts"
+            }
+            default {
+                $TargetUrl = $Account2Url
+                $TargetEmail = $Account2Email
+            }
+        }
+    } else {
+        $TargetUrl = $Account2Url
+        $TargetEmail = $Account2Email
+    }
 }
 
 # ── Clean up & prepare worker directory ──────────────────────
@@ -142,7 +225,12 @@ Write-Host "  Mode      : $Mode (--loop)"
 Write-Host "  Workers   : $NumWindows ($($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
 Write-Host "  Delay     : $DelayMin-$DelayMax`s between runs"
-Write-Host "  Target URL: $TargetUrl"
+Write-Host "  Pacing    : Proactive 5-10m cool-off every 3 registrations"
+Write-Host "  Referrer  : $Referrer (Instagram, Telegram, Facebook, YouTube, etc.)"
+Write-Host "  Target    : $TargetEmail"
+if (-not $RoundRobin) {
+    Write-Host "  URL       : $TargetUrl"
+}
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -164,6 +252,18 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $jitter = $Rng.Next(5, 16)
     $delay = $baseDelay + $jitter
 
+    # Assign worker target URL (round-robin or single selection)
+    if ($RoundRobin) {
+        $accounts = @($Account1Url, $Account2Url, $Account3Url)
+        $emails = @($Account1Email, $Account2Email, $Account3Email)
+        $idx = $i % 3
+        $wUrl = $accounts[$idx]
+        $wEmail = $emails[$idx]
+    } else {
+        $wUrl = $TargetUrl
+        $wEmail = $TargetEmail
+    }
+
     $scriptContent = @"
 @echo off
 title $label
@@ -172,23 +272,26 @@ cd /d "$ProjectDir"
 
 echo.
 echo =============================================
-echo   $label -- waiting ${delay}s before start
+echo   $label ($wEmail)
+echo   Target URL : $wUrl
+echo   Waiting ${delay}s before start
 echo =============================================
 timeout /t $delay /nobreak >nul
 
 echo.
 echo [$label] Starting automation loop (mode=$Mode)...
+echo [$label] Referral Account: $wEmail
 echo.
 
 :loop_forever
-"$Python" main.py --mode $Mode --loop --target-url "$TargetUrl" --delay-min $DelayMin --delay-max $DelayMax
+"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --referrer "$Referrer"
 echo.
 echo [$label] Process exited -- restarting in 5s...
 timeout /t 5 /nobreak >nul
 goto loop_forever
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII
-    Write-Host "  [$label]  grid=($col,$row)  pos=($x,$y)  size=$($WinW)x$($WinH)  delay=${delay}s" -ForegroundColor Gray
+    Write-Host "  [$label]  grid=($col,$row)  account=$wEmail  delay=${delay}s" -ForegroundColor Gray
 }
 
 Write-Host ""

@@ -26,10 +26,22 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
-TARGET_URL="${TARGET_URL:-https://websurfer.1024tenbox.com/referral/XWUPKX2D}"
+REFERRER="${REFERRER:-random}"
+DELAY_MIN="${DELAY_MIN:-180}"
+DELAY_MAX="${DELAY_MAX:-360}"
 METHOD="${METHOD:-auto}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 TMUX_SESSION="cloudflare-auto"
+
+# Referral Account Presets
+ACCOUNT_1_URL="https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+ACCOUNT_1_EMAIL="pn@gmail.com"
+
+ACCOUNT_2_URL="https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+ACCOUNT_2_EMAIL="dd@gmail.com"
+
+ACCOUNT_3_URL="https://websurfer.1024tenbox.com/referral/75H3QGGK"
+ACCOUNT_3_EMAIL="jn@gmail.com"
 
 # ── Stop Command ─────────────────────────────────────────────
 if [[ "${1:-}" == "stop" ]]; then
@@ -59,6 +71,74 @@ if [[ "${1:-}" == "stop" ]]; then
     echo "  [+] All workers stopped."
     echo "================================================================"
     exit 0
+fi
+
+# ── Account Selection ────────────────────────────────────────
+ROUND_ROBIN=false
+TARGET_URL=""
+TARGET_EMAIL=""
+
+# Check if passed as first argument
+ARG1="${1:-}"
+if [[ "$ARG1" =~ ^https?:// ]]; then
+    TARGET_URL="$ARG1"
+    TARGET_EMAIL="Custom Account"
+elif [[ "$ARG1" == "1" || "$ARG1" == "pn" || "$ARG1" == "pn@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_1_URL"
+    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+elif [[ "$ARG1" == "2" || "$ARG1" == "dd" || "$ARG1" == "dd@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_2_URL"
+    TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+elif [[ "$ARG1" == "3" || "$ARG1" == "jn" || "$ARG1" == "jn@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_3_URL"
+    TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+elif [[ "$ARG1" == "5" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
+    ROUND_ROBIN=true
+    TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com)"
+    TARGET_URL="Distributed across 3 accounts"
+elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
+    TARGET_EMAIL="Custom URL"
+elif [ -t 0 ]; then
+    echo "================================================================"
+    echo "   CloudflareAuto -- Select Target Referral Account"
+    echo "================================================================"
+    echo "  [1] pn@gmail.com  ->  $ACCOUNT_1_URL  (Default)"
+    echo "  [2] dd@gmail.com  ->  $ACCOUNT_2_URL"
+    echo "  [3] jn@gmail.com  ->  $ACCOUNT_3_URL"
+    echo "  [4] Custom URL    ->  [Enter your own referral link]"
+    echo "  [5] Distribute    ->  Round-Robin across workers (Farms all accounts simultaneously)"
+    echo "================================================================"
+    read -r -p "Select option [1-5, Enter for default 1]: " USER_CHOICE
+    USER_CHOICE="${USER_CHOICE:-1}"
+
+    case "$USER_CHOICE" in
+        2|dd)
+            TARGET_URL="$ACCOUNT_2_URL"
+            TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+            ;;
+        3|jn)
+            TARGET_URL="$ACCOUNT_3_URL"
+            TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+            ;;
+        4|custom)
+            read -r -p "Enter custom referral URL: " CUSTOM_INPUT
+            TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_1_URL}"
+            TARGET_EMAIL="Custom Account"
+            ;;
+        5|all|distribute)
+            ROUND_ROBIN=true
+            TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com)"
+            TARGET_URL="Distributed across 3 accounts"
+            ;;
+        *)
+            TARGET_URL="$ACCOUNT_1_URL"
+            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+            ;;
+    esac
+else
+    # Non-interactive fallback default
+    TARGET_URL="${TARGET_URL:-$ACCOUNT_1_URL}"
+    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
 fi
 
 # ── Clean up old worker directory ────────────────────────────
@@ -229,7 +309,13 @@ echo "  Workers   : $NUM_WINDOWS  (${COLS}x${ROWS} grid)"
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 fi
-echo "  Target URL: $TARGET_URL"
+echo "  Delay     : ${DELAY_MIN}-${DELAY_MAX}s between runs"
+echo "  Pacing    : Proactive 5-10m cool-off every 3 registrations"
+echo "  Referrer  : $REFERRER (Instagram, Telegram, Facebook, YouTube, etc.)"
+echo "  Target    : $TARGET_EMAIL"
+if [[ "$ROUND_ROBIN" != "true" ]]; then
+    echo "  URL       : $TARGET_URL"
+fi
 echo "  Backend   : $SELECTED_METHOD $([[ "$SELECTED_METHOD" == "gui" ]] && echo "($GUI_TERMINAL)" || true)"
 echo "================================================================"
 echo ""
@@ -249,6 +335,18 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     BASE_DELAY=$(( i * 30 ))
     DELAY=$(( BASE_DELAY + $(rand_between 5 15) ))
 
+    # Assign worker target URL (round-robin or single selection)
+    if [[ "$ROUND_ROBIN" == "true" ]]; then
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL")
+        IDX=$(( i % 3 ))
+        WORKER_URL="${ACCOUNTS[$IDX]}"
+        WORKER_ACCOUNT="${EMAILS[$IDX]}"
+    else
+        WORKER_URL="$TARGET_URL"
+        WORKER_ACCOUNT="$TARGET_EMAIL"
+    fi
+
     cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 printf '\033]0;${LABEL}\007'
@@ -256,16 +354,19 @@ cd "${PROJECT_DIR}"
 
 echo ""
 echo "============================================="
-echo "  ${LABEL} -- waiting ${DELAY}s before start"
+echo "  ${LABEL} (${WORKER_ACCOUNT})"
+echo "  Target URL : ${WORKER_URL}"
+echo "  Waiting ${DELAY}s before start"
 echo "============================================="
 sleep ${DELAY}
 
 echo ""
 echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
+echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
 while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${TARGET_URL}"
+    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --referrer "${REFERRER}"
     echo ""
     echo "[${LABEL}] Process exited -- restarting in 5s..."
     sleep 5
@@ -273,7 +374,7 @@ done
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"
-    echo "  [$LABEL]  grid=(${COL},${ROW})  pos=(${X},${Y})  size=${WIN_W}x${WIN_H}  delay=${DELAY}s"
+    echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}  delay=${DELAY}s"
 done
 
 echo ""

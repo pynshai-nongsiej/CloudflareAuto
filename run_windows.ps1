@@ -15,11 +15,12 @@ param(
     [switch]$Headed,
     [switch]$Loop,
     [int]$Count = 0,
-    [int]$DelayMin = 120,
-    [int]$DelayMax = 240,
+    [int]$DelayMin = 180,
+    [int]$DelayMax = 360,
     [string]$Provider = "",
     [string]$Model = "",
-    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
+    [string]$Referrer = "random"
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +44,10 @@ $PyArgs = @("main.py", "--mode", $Mode)
 
 if ($TargetUrl) {
     $PyArgs += @("--target-url", $TargetUrl)
+}
+
+if ($Referrer) {
+    $PyArgs += @("--referrer", $Referrer)
 }
 
 if ($Headed) {

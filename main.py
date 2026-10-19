@@ -48,10 +48,55 @@ from src.automation.playwright_automation import register_and_verify, RateLimitE
 from src.automation.browser_use_automation import create_browser_use_agent, get_default_llm
 
 
+REFERRAL_PRESETS = {
+    "1": {
+        "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D",
+        "email": "pn@gmail.com",
+        "label": "pn@gmail.com (Linux / Primary)",
+    },
+    "2": {
+        "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
+        "email": "dd@gmail.com",
+        "label": "dd@gmail.com (Windows / Secondary)",
+    },
+    "3": {
+        "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
+        "email": "jn@gmail.com",
+        "label": "jn@gmail.com (Tertiary)",
+    },
+}
+
+REFERRAL_ALIASES = {
+    "pn": "1",
+    "pn@gmail.com": "1",
+    "dd": "2",
+    "dd@gmail.com": "2",
+    "jn": "3",
+    "jn@gmail.com": "3",
+}
+
+
+def resolve_target_url(raw_val: str) -> tuple[str, str]:
+    """Resolve preset ID ('1', '2', '3'), alias ('pn', 'dd', 'jn'), or full URL.
+    Returns (url, email_label).
+    """
+    cleaned = (raw_val or "").strip()
+    key = REFERRAL_ALIASES.get(cleaned.lower(), cleaned)
+    if key in REFERRAL_PRESETS:
+        preset = REFERRAL_PRESETS[key]
+        return preset["url"], preset["email"]
+
+    for preset in REFERRAL_PRESETS.values():
+        if cleaned.rstrip("/") == preset["url"].rstrip("/"):
+            return preset["url"], preset["email"]
+
+    return cleaned, "Custom Account"
+
+
 DEFAULT_TARGET_URL = (
-    "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
+    REFERRAL_PRESETS["2"]["url"]
     if sys.platform == "win32"
-    else "https://websurfer.1024tenbox.com/referral/XWUPKX2D"
+    else REFERRAL_PRESETS["1"]["url"]
 )
 
 
@@ -84,14 +129,38 @@ def parse_args():
     parser.add_argument(
         "--delay-min",
         type=int,
-        default=120,
-        help="Minimum delay in seconds between loop runs (default: 120 = 2 min)",
+        default=180,
+        help="Minimum delay in seconds between loop runs (default: 180 = 3 min)",
     )
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=240,
-        help="Maximum delay in seconds between loop runs (default: 240 = 4 min)",
+        default=360,
+        help="Maximum delay in seconds between loop runs (default: 360 = 6 min)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=3,
+        help="Number of registrations per batch before taking a proactive human cool-off break (default: 3, 0=disabled)",
+    )
+    parser.add_argument(
+        "--batch-pause-min",
+        type=int,
+        default=300,
+        help="Minimum proactive cool-off break in seconds after each batch (default: 300 = 5 min)",
+    )
+    parser.add_argument(
+        "--batch-pause-max",
+        type=int,
+        default=600,
+        help="Maximum proactive cool-off break in seconds after each batch (default: 600 = 10 min)",
+    )
+    parser.add_argument(
+        "--referrer",
+        type=str,
+        default="random",
+        help="Simulated inbound referral platform: instagram, telegram, facebook, youtube, twitter, reddit, random, or none (default: random)",
     )
     parser.add_argument(
         "--provider",
@@ -126,14 +195,19 @@ def parse_args():
         "--target-url",
         type=str,
         default=DEFAULT_TARGET_URL,
-        help="Target registration/referral URL (defaults to Windows or Linux/Mac referral link)",
+        help="Target registration/referral URL or preset ('1', '2', '3', 'pn', 'dd', 'jn')",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    resolved_url, resolved_email = resolve_target_url(args.target_url)
+    args.target_url = resolved_url
+    args.target_email = resolved_email
+    return args
 
 
 async def run_browser_use(args):
     print("=" * 60)
     print("  Starting browser-use Agent for TenBox Websurfer")
+    print(f"  Target: {args.target_url} ({args.target_email})")
     print("=" * 60)
 
     mail_client = TempMailClient()
@@ -154,6 +228,7 @@ async def run_browser_use(args):
         llm=llm,
         headed=args.headed,
         target_url=getattr(args, "target_url", DEFAULT_TARGET_URL),
+        referrer=getattr(args, "referrer", "random"),
     )
 
     history = await agent.run()
@@ -171,6 +246,7 @@ async def run_direct_single(args) -> dict:
         timeout=args.timeout,
         cleanup_inbox=not args.keep_inbox,
         target_url=getattr(args, "target_url", None),
+        referrer=getattr(args, "referrer", "random"),
     )
 
     return result
@@ -185,6 +261,9 @@ def print_result(result: dict, run_number: int = 0):
     print(f"  Email:    {result['email']}")
     print(f"  OTP:      {result['otp']}")
     print(f"  URL:      {result['url']}")
+    if 'referrer' in result and result['referrer']:
+        ref = result['referrer']
+        print(f"  Referrer: 🌐 {ref.get('platform', 'N/A')} ({ref.get('url', 'N/A')[:55]}...)")
     print(f"  Cookies:  {len(result.get('cookies', []))} captured")
     if 'auth_storage' in result:
         local_keys = list(result['auth_storage'].get('localStorage', {}).keys())
@@ -197,24 +276,35 @@ def print_result(result: dict, run_number: int = 0):
 
 
 async def run_loop(args):
-    """Run the automation in an unlimited (or counted) loop with random delays."""
+    """Run the automation in an unlimited (or counted) loop with proactive pacing & random delays."""
     max_runs = args.count if args.count > 0 else float('inf')
     delay_min = args.delay_min
     delay_max = args.delay_max
+    batch_size = getattr(args, "batch_size", 3)
+    batch_pause_min = getattr(args, "batch_pause_min", 300)
+    batch_pause_max = getattr(args, "batch_pause_max", 600)
+    referrer_mode = getattr(args, "referrer", "random")
+
     run_number = 0
     successes = 0
     failures = 0
+    batch_count = 0
     start_time = time.time()
 
     print("=" * 60)
-    print("  🔄 UNLIMITED REGISTRATION LOOP")
+    print("  🔄 TENBOX AUTOMATION LOOP -- PROACTIVE SELF-PACING")
     print("=" * 60)
-    print(f"  Mode:      {args.mode}")
-    print(f"  Max runs:  {'unlimited' if max_runs == float('inf') else max_runs}")
+    print(f"  Mode:         {args.mode}")
+    print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
     delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
-    print(f"  Delay:     {delay_desc} between runs")
-    print(f"  Headed:    {args.headed}")
-    print(f"  Timeout:   {args.timeout}s")
+    print(f"  Run Delay:    {delay_desc} between runs")
+    if batch_size > 0:
+        print(f"  Batch Break:  Every {batch_size} registrations -> {batch_pause_min//60}-{batch_pause_max//60} min cool-off")
+    print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
+    print(f"  Target URL:   {args.target_url}")
+    print(f"  Account:      {args.target_email}")
+    print(f"  Headed:       {args.headed}")
+    print(f"  Timeout:      {args.timeout}s")
     print("=" * 60)
     print("  Press Ctrl+C to stop at any time.\n")
 
@@ -233,7 +323,36 @@ async def run_loop(args):
             try:
                 result = await run_direct_single(args)
                 successes += 1
+                batch_count += 1
                 print_result(result, run_number)
+
+                # ── Proactive Self-Rate-Limiting (Batch Cool-Off) ──
+                if run_number < max_runs and batch_size > 0 and batch_count >= batch_size:
+                    batch_pause = random.uniform(batch_pause_min, batch_pause_max)
+                    batch_count = 0
+                    p_mins = int(batch_pause // 60)
+                    p_secs = int(batch_pause % 60)
+                    resume_p = time.strftime("%H:%M:%S", time.localtime(time.time() + batch_pause))
+
+                    print(f"\n{'=' * 60}")
+                    print(f"  ☕ PROACTIVE PACING: Batch of {batch_size} registrations completed!")
+                    print(f"     Taking a {batch_pause:.0f}s (~{p_mins}m {p_secs}s) human cool-off break")
+                    print(f"     to prevent rate limits and mimic organic referral traffic.")
+                    print(f"     Will resume at: {resume_p}")
+                    print(f"{'=' * 60}")
+
+                    rem_p = batch_pause
+                    while rem_p > 0:
+                        step_p = min(rem_p, 60)
+                        await asyncio.sleep(step_p)
+                        rem_p -= step_p
+                        if rem_p > 0:
+                            rp_m = int(rem_p // 60)
+                            rp_s = int(rem_p % 60)
+                            print(f"  ☕ [Proactive Cool-Off] {rp_m}m {rp_s}s remaining (resumes at {resume_p})...")
+                    print(f"\n  ✅ Proactive break complete! Continuing next registration batch...\n")
+                    continue
+
             except KeyboardInterrupt:
                 raise
             except RateLimitError as rle:
@@ -299,6 +418,7 @@ async def run_loop(args):
 async def run_direct(args):
     print("=" * 60)
     print("  Starting Direct Playwright Automation for TenBox Websurfer")
+    print(f"  Target: {args.target_url} ({args.target_email})")
     print("=" * 60)
 
     result = await run_direct_single(args)

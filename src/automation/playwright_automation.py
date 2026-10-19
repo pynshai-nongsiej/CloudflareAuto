@@ -7,6 +7,7 @@ All sessions use a fully randomized browser fingerprint for anti-detection.
 """
 
 import asyncio
+import json
 import random
 import re
 import sys
@@ -14,6 +15,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 from .tempmail_client import TempMailClient
+from .referrers import get_random_referrer
 from .fingerprint import (
     generate_fingerprint,
     get_injection_script,
@@ -252,19 +254,21 @@ async def register_and_verify(
     cleanup_inbox: bool = False,
     log_fn: Optional[Callable[[str], None]] = None,
     target_url: Optional[str] = None,
+    referrer: Optional[str] = "random",
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
 
     Flow:
-    1. Generates a randomized browser fingerprint.
+    1. Generates a randomized browser fingerprint and social media referrer.
     2. Creates a temporary email inbox.
-    3. Navigates to the referral URL (SPA routes to login form).
-    4. Enters email and clicks Send OTP.
-    5. Waits for OTP page, polls inbox for the verification code.
-    6. Enters OTP digits and verifies dashboard redirection.
+    3. Navigates to the referral URL with authentic Referer headers (Instagram, Telegram, Facebook, YouTube, etc.).
+    4. Simulates realistic human browsing before clicking CTA.
+    5. Enters email and clicks Send OTP.
+    6. Waits for OTP page, polls inbox for the verification code.
+    7. Enters OTP digits and verifies dashboard redirection.
 
     Returns:
-        dict with success status, email, otp, final URL, cookies, and storage data.
+        dict with success status, email, otp, final URL, cookies, referrer, and storage data.
     """
     url = target_url or TARGET_URL
     def log(msg: str):
@@ -275,7 +279,13 @@ async def register_and_verify(
 
     mail_client = client or TempMailClient()
 
-    # ── Step 0: Generate randomized fingerprint ──
+    # ── Step 0: Inbound Referrer & Fingerprint Simulation ──
+    ref_info = None
+    if referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
+        preferred = None if str(referrer).lower() in ("random", "auto") else str(referrer).lower()
+        ref_info = get_random_referrer(url, preferred_platform=preferred)
+        log(f"[*] 🌐 Inbound Referrer Simulated: {ref_info['platform']} -> {ref_info['url'][:70]}...")
+
     host_platform = {"darwin": "darwin", "win32": "win32", "linux": "linux"}.get(sys.platform, None)
     fp = generate_fingerprint(prefer_platform=host_platform)
     log(f"[*] Fingerprint: UA={fp.user_agent[:55]}...")
@@ -299,8 +309,28 @@ async def register_and_verify(
         )
 
         context_opts = get_playwright_context_options(fp)
+        if ref_info:
+            extra_h = context_opts.get("extra_http_headers", {})
+            extra_h["Sec-Fetch-Site"] = "cross-site"
+            extra_h["Sec-Fetch-Mode"] = "navigate"
+            extra_h["Sec-Fetch-Dest"] = "document"
+            context_opts["extra_http_headers"] = extra_h
+
         context = await browser.new_context(**context_opts)
         await context.add_init_script(get_injection_script(fp))
+
+        if ref_info:
+            ref_script = f"""
+            (() => {{
+                try {{
+                    Object.defineProperty(document, 'referrer', {{
+                        get: () => {json.dumps(ref_info['url'])},
+                        configurable: true
+                    }});
+                }} catch(e) {{}}
+            }})();
+            """
+            await context.add_init_script(ref_script)
 
         page = await context.new_page()
 
@@ -315,7 +345,7 @@ async def register_and_verify(
 
         try:
             # ── Step 3: Navigate to referral URL with retry logic ──
-            log(f"[*] Navigating to {url}...")
+            log(f"[*] Navigating to {url} (referrer: {ref_info['platform'] if ref_info else 'none'})...")
             max_nav_retries = 3
             nav_success = False
             last_nav_err = None
@@ -326,7 +356,11 @@ async def register_and_verify(
                         log(f"[*] Retrying navigation (attempt {attempt}/{max_nav_retries})...")
                     # Try domcontentloaded first, fallback to commit if server takes time to deliver full DOM
                     wait_until_strategy = "domcontentloaded" if attempt <= 2 else "commit"
-                    await page.goto(url, wait_until=wait_until_strategy, timeout=30000)
+                    goto_kwargs = {"wait_until": wait_until_strategy, "timeout": 30000}
+                    if ref_info:
+                        goto_kwargs["referer"] = ref_info["url"]
+
+                    await page.goto(url, **goto_kwargs)
                     nav_success = True
                     break
                 except Exception as nav_err:
@@ -341,10 +375,22 @@ async def register_and_verify(
                     f"Check your internet connection or whether {url} is currently reachable from your network/VPN."
                 )
 
-            # Wait for the SPA to initialize
+            # Wait for the SPA to initialize and simulate realistic human browsing
             await asyncio.sleep(2)
             current_url = page.url
             log(f"[*] Page loaded, current URL: {current_url}")
+
+            # Human visual pause & slight natural mouse movement
+            log(f"[*] Simulating human landing review from {ref_info['platform'] if ref_info else 'referral'}...")
+            await asyncio.sleep(random.uniform(1.8, 3.2))
+            try:
+                await page.mouse.move(random.randint(150, 500), random.randint(150, 400))
+                await asyncio.sleep(random.uniform(0.3, 0.7))
+                await page.evaluate(f"window.scrollBy(0, {random.randint(120, 240)})")
+                await asyncio.sleep(random.uniform(0.4, 0.8))
+                await page.evaluate("window.scrollBy(0, -60)")
+            except Exception:
+                pass
 
             # The referral page is a landing page with a CTA button.
             # We need to click "Get started free" to go to the login form.
@@ -438,8 +484,8 @@ async def register_and_verify(
             send_btn = await _find_send_otp_button(page)
             log("[*] Clicking Send OTP...")
 
-            # Small pause before clicking (human-like)
-            await asyncio.sleep(random.uniform(0.2, 0.6))
+            # Realistic pause before submitting email (like reviewing typed email)
+            await asyncio.sleep(random.uniform(1.2, 2.5))
             await send_btn.click()
 
             # ── Step 6: Wait for OTP page ──
@@ -596,6 +642,7 @@ async def register_and_verify(
                     "timezone": fp.timezone,
                     "webgl_renderer": fp.webgl_renderer,
                 },
+                "referrer": ref_info,
             }
 
             if cleanup_inbox:
