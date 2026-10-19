@@ -22,7 +22,6 @@ param(
     [string]$TargetUrl = "",
     [int]$DelayMin = 60,
     [int]$DelayMax = 120,
-    [string]$Referrer = "random",
     [string]$Account = ""
 )
 
@@ -233,7 +232,6 @@ Write-Host "  Mode      : $Mode (--loop)"
 Write-Host "  Workers   : $NumWindows ($($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
 Write-Host "  Pacing    : $DelayMin-$DelayMax`s (1-2 min) between runs"
-Write-Host "  Referrer  : $Referrer (Instagram, Telegram, Facebook, YouTube, etc.)"
 Write-Host "  Target    : $TargetEmail"
 if (-not $RoundRobin) {
     Write-Host "  URL       : $TargetUrl"
@@ -291,7 +289,7 @@ echo [$label] Referral Account: $wEmail
 echo.
 
 :loop_forever
-"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --referrer "$Referrer"
+"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax
 echo.
 echo [$label] Process exited -- restarting in 5s...
 timeout /t 5 /nobreak >nul

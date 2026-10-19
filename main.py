@@ -138,11 +138,12 @@ def parse_args():
         default=120,
         help="Maximum delay in seconds between loop runs (default: 120 = 2 min)",
     )
+    default_referrer = "random" if sys.platform == "darwin" else "none"
     parser.add_argument(
         "--referrer",
         type=str,
-        default="random",
-        help="Simulated inbound referral platform: instagram, telegram, facebook, youtube, twitter, reddit, random, or none (default: random)",
+        default=default_referrer,
+        help="Simulated inbound referral platform (macOS only): instagram, telegram, facebook, youtube, twitter, reddit, random, or none",
     )
     parser.add_argument(
         "--provider",
@@ -276,7 +277,8 @@ async def run_loop(args):
     print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
     delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
     print(f"  Pacing:       {delay_desc} between runs")
-    print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
+    if sys.platform == "darwin":
+        print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
     print(f"  Target URL:   {args.target_url}")
     print(f"  Account:      {args.target_email}")
     print(f"  Headed:       {args.headed}")

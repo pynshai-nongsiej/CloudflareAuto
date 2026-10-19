@@ -19,8 +19,7 @@ param(
     [int]$DelayMax = 120,
     [string]$Provider = "",
     [string]$Model = "",
-    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
-    [string]$Referrer = "random"
+    [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
 )
 
 $ErrorActionPreference = "Stop"

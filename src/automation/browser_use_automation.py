@@ -133,9 +133,9 @@ def create_browser_use_agent(
     )
     target_link = target_url or default_referral
 
-    # Select simulated inbound social referrer
+    # Select simulated inbound social referrer (macOS only)
     ref_info = None
-    if referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
+    if sys.platform == "darwin" and referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
         preferred = None if str(referrer).lower() in ("random", "auto") else str(referrer).lower()
         ref_info = get_random_referrer(target_link, preferred_platform=preferred)
 

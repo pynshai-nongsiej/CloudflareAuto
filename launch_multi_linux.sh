@@ -26,7 +26,6 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
-REFERRER="${REFERRER:-random}"
 DELAY_MIN="${DELAY_MIN:-60}"
 DELAY_MAX="${DELAY_MAX:-120}"
 METHOD="${METHOD:-auto}"
@@ -312,7 +311,6 @@ if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 fi
 echo "  Pacing    : ${DELAY_MIN}-${DELAY_MAX}s (1-2 min) between runs"
-echo "  Referrer  : $REFERRER (Instagram, Telegram, Facebook, YouTube, etc.)"
 echo "  Target    : $TARGET_EMAIL"
 if [[ "$ROUND_ROBIN" != "true" ]]; then
     echo "  URL       : $TARGET_URL"
@@ -367,7 +365,7 @@ echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
 while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --referrer "${REFERRER}"
+    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX}
     echo ""
     echo "[${LABEL}] Process exited -- restarting in 5s..."
     sleep 5

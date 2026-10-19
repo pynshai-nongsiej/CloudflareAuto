@@ -312,9 +312,9 @@ async def register_and_verify(
 
     mail_client = client or TempMailClient()
 
-    # ── Step 0: Inbound Referrer & Fingerprint Simulation ──
+    # ── Step 0: Inbound Referrer & Fingerprint Simulation (macOS only) ──
     ref_info = None
-    if referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
+    if sys.platform == "darwin" and referrer and str(referrer).lower() not in ("none", "false", "off", "direct", "empty"):
         preferred = None if str(referrer).lower() in ("random", "auto") else str(referrer).lower()
         ref_info = get_random_referrer(url, preferred_platform=preferred)
         log(f"[*] 🌐 Inbound Referrer Simulated: {ref_info['platform']} -> {ref_info['url'][:70]}...")
@@ -378,7 +378,8 @@ async def register_and_verify(
 
         try:
             # ── Step 3: Navigate to referral URL with retry logic ──
-            log(f"[*] Navigating to {url} (referrer: {ref_info['platform'] if ref_info else 'none'})...")
+            ref_label = f" (referrer: {ref_info['platform']})" if ref_info else ""
+            log(f"[*] Navigating to {url}{ref_label}...")
             max_nav_retries = 3
             nav_success = False
             last_nav_err = None
