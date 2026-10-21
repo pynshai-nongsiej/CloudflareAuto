@@ -19,6 +19,8 @@ set "ACCOUNT_2_URL=https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
 set "ACCOUNT_2_EMAIL=dd@gmail.com"
 set "ACCOUNT_3_URL=https://websurfer.1024tenbox.com/referral/75H3QGGK"
 set "ACCOUNT_3_EMAIL=jn@gmail.com"
+set "ACCOUNT_4_URL=https://websurfer.1024tenbox.com/referral/8PCCMJ33"
+set "ACCOUNT_4_EMAIL=dai@gmail.com"
 
 set "TARGET_URL=%ACCOUNT_2_URL%"
 set "TARGET_EMAIL=%ACCOUNT_2_EMAIL%"
@@ -50,7 +52,7 @@ echo   [3] Counted Loop - Run N registrations with 1-2 min delay (Headless)
 echo   [4] Multi-Window Grid Launcher (5 Tiled Workers with Staggered Delays)
 echo   [5] Stop All Running Workers
 echo   [6] AI Agent Mode - browser-use (Headless) [Requires API key in .env]
-echo   [7] Switch Target Referral Account (pn, dd, jn, custom)
+echo   [7] Switch Target Referral Account (pn, dd, jn, dai, custom)
 echo   [8] Show Help / CLI Options
 echo   [0] Exit
 echo.
@@ -117,9 +119,10 @@ echo.
 echo   [1] %ACCOUNT_1_EMAIL%  -^> %ACCOUNT_1_URL%
 echo   [2] %ACCOUNT_2_EMAIL%  -^> %ACCOUNT_2_URL% (Default Windows)
 echo   [3] %ACCOUNT_3_EMAIL%  -^> %ACCOUNT_3_URL%
-echo   [4] Custom URL
+echo   [4] %ACCOUNT_4_EMAIL%  -^> %ACCOUNT_4_URL%
+echo   [5] Custom URL
 echo.
-set /p "ACC_CHOICE=Select account [1-4, Enter to cancel]: "
+set /p "ACC_CHOICE=Select account [1-5, Enter to cancel]: "
 if "%ACC_CHOICE%"=="1" (
     set "TARGET_URL=%ACCOUNT_1_URL%"
     set "TARGET_EMAIL=%ACCOUNT_1_EMAIL%"
@@ -133,6 +136,10 @@ if "%ACC_CHOICE%"=="3" (
     set "TARGET_EMAIL=%ACCOUNT_3_EMAIL%"
 )
 if "%ACC_CHOICE%"=="4" (
+    set "TARGET_URL=%ACCOUNT_4_URL%"
+    set "TARGET_EMAIL=%ACCOUNT_4_EMAIL%"
+)
+if "%ACC_CHOICE%"=="5" (
     set /p "CUSTOM_URL=Enter custom referral URL: "
     if not "!CUSTOM_URL!"=="" (
         set "TARGET_URL=!CUSTOM_URL!"

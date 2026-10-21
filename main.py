@@ -64,6 +64,11 @@ REFERRAL_PRESETS = {
         "email": "jn@gmail.com",
         "label": "jn@gmail.com (Tertiary)",
     },
+    "4": {
+        "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33",
+        "email": "dai@gmail.com",
+        "label": "dai@gmail.com (Quaternary)",
+    },
 }
 
 REFERRAL_ALIASES = {
@@ -73,11 +78,13 @@ REFERRAL_ALIASES = {
     "dd@gmail.com": "2",
     "jn": "3",
     "jn@gmail.com": "3",
+    "dai": "4",
+    "dai@gmail.com": "4",
 }
 
 
 def resolve_target_url(raw_val: str) -> tuple[str, str]:
-    """Resolve preset ID ('1', '2', '3'), alias ('pn', 'dd', 'jn'), or full URL.
+    """Resolve preset ID ('1', '2', '3', '4'), alias ('pn', 'dd', 'jn', 'dai'), or full URL.
     Returns (url, email_label).
     """
     cleaned = (raw_val or "").strip()

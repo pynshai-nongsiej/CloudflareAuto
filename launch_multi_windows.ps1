@@ -42,6 +42,9 @@ $Account2Email = "dd@gmail.com"
 $Account3Url = "https://websurfer.1024tenbox.com/referral/75H3QGGK"
 $Account3Email = "jn@gmail.com"
 
+$Account4Url = "https://websurfer.1024tenbox.com/referral/8PCCMJ33"
+$Account4Email = "dai@gmail.com"
+
 # ── Stop Command ─────────────────────────────────────────────
 if ($Action -eq "stop" -or $args -contains "stop") {
     Write-Host "================================================================" -ForegroundColor Cyan
@@ -88,10 +91,13 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
 } elseif ($Account -eq "3" -or $Account -eq "jn" -or $Account -eq "jn@gmail.com") {
     $TargetUrl = $Account3Url
     $TargetEmail = $Account3Email
-} elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute" -or $Account -eq "round-robin") {
+} elseif ($Account -eq "4" -or $Account -eq "dai" -or $Account -eq "dai@gmail.com") {
+    $TargetUrl = $Account4Url
+    $TargetEmail = $Account4Email
+} elseif ($Account -eq "6" -or $Account -eq "all" -or $Account -eq "distribute" -or $Account -eq "round-robin") {
     $RoundRobin = $true
-    $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email)"
-    $TargetUrl = "Distributed across 3 accounts"
+    $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email, $Account4Email)"
+    $TargetUrl = "Distributed across 4 accounts"
 } elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
     $TargetEmail = "Custom URL"
 } else {
@@ -104,10 +110,11 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
         Write-Host "  [1] $Account1Email  ->  $Account1Url"
         Write-Host "  [2] $Account2Email  ->  $Account2Url  (Default Windows)"
         Write-Host "  [3] $Account3Email  ->  $Account3Url"
-        Write-Host "  [4] Custom URL    ->  [Enter your own referral link]"
-        Write-Host "  [5] Distribute    ->  Round-Robin across workers (Farms all accounts simultaneously)"
+        Write-Host "  [4] $Account4Email  ->  $Account4Url"
+        Write-Host "  [5] Custom URL     ->  [Enter your own referral link]"
+        Write-Host "  [6] Distribute     ->  Round-Robin across workers (Farms all 4 accounts simultaneously)"
         Write-Host "================================================================" -ForegroundColor Cyan
-        $choice = Read-Host "Select option [1-5, Enter for default 2]"
+        $choice = Read-Host "Select option [1-6, Enter for default 2]"
         if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "2" }
 
         switch ($choice.Trim().ToLower()) {
@@ -120,6 +127,10 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
                 $TargetEmail = $Account3Email
             }
             "4" {
+                $TargetUrl = $Account4Url
+                $TargetEmail = $Account4Email
+            }
+            "5" {
                 $customInput = Read-Host "Enter custom referral URL"
                 if ([string]::IsNullOrWhiteSpace($customInput)) {
                     $TargetUrl = $Account2Url
@@ -129,10 +140,10 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
                     $TargetEmail = "Custom Account"
                 }
             }
-            "5" {
+            "6" {
                 $RoundRobin = $true
-                $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email)"
-                $TargetUrl = "Distributed across 3 accounts"
+                $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email, $Account4Email)"
+                $TargetUrl = "Distributed across 4 accounts"
             }
             default {
                 $TargetUrl = $Account2Url
@@ -259,9 +270,9 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
 
     # Assign worker target URL (round-robin or single selection)
     if ($RoundRobin) {
-        $accounts = @($Account1Url, $Account2Url, $Account3Url)
-        $emails = @($Account1Email, $Account2Email, $Account3Email)
-        $idx = $i % 3
+        $accounts = @($Account1Url, $Account2Url, $Account3Url, $Account4Url)
+        $emails = @($Account1Email, $Account2Email, $Account3Email, $Account4Email)
+        $idx = $i % 4
         $wUrl = $accounts[$idx]
         $wEmail = $emails[$idx]
     } else {

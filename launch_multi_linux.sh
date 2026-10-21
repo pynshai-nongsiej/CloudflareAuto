@@ -42,6 +42,9 @@ ACCOUNT_2_EMAIL="dd@gmail.com"
 ACCOUNT_3_URL="https://websurfer.1024tenbox.com/referral/75H3QGGK"
 ACCOUNT_3_EMAIL="jn@gmail.com"
 
+ACCOUNT_4_URL="https://websurfer.1024tenbox.com/referral/8PCCMJ33"
+ACCOUNT_4_EMAIL="dai@gmail.com"
+
 # ── Stop Command ─────────────────────────────────────────────
 if [[ "${1:-}" == "stop" ]]; then
     echo "================================================================"
@@ -92,23 +95,27 @@ elif [[ "$ARG1" == "2" || "$ARG1" == "dd" || "$ARG1" == "dd@gmail.com" ]]; then
 elif [[ "$ARG1" == "3" || "$ARG1" == "jn" || "$ARG1" == "jn@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_3_URL"
     TARGET_EMAIL="$ACCOUNT_3_EMAIL"
-elif [[ "$ARG1" == "5" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
+elif [[ "$ARG1" == "4" || "$ARG1" == "dai" || "$ARG1" == "dai@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_4_URL"
+    TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+elif [[ "$ARG1" == "6" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
     ROUND_ROBIN=true
-    TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com)"
-    TARGET_URL="Distributed across 3 accounts"
+    TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com, dai@gmail.com)"
+    TARGET_URL="Distributed across 4 accounts"
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
 elif [ -t 0 ]; then
     echo "================================================================"
     echo "   CloudflareAuto -- Select Target Referral Account"
     echo "================================================================"
-    echo "  [1] pn@gmail.com  ->  $ACCOUNT_1_URL  (Default)"
-    echo "  [2] dd@gmail.com  ->  $ACCOUNT_2_URL"
-    echo "  [3] jn@gmail.com  ->  $ACCOUNT_3_URL"
-    echo "  [4] Custom URL    ->  [Enter your own referral link]"
-    echo "  [5] Distribute    ->  Round-Robin across workers (Farms all accounts simultaneously)"
+    echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (Default)"
+    echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL"
+    echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL"
+    echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL"
+    echo "  [5] Custom URL     ->  [Enter your own referral link]"
+    echo "  [6] Distribute     ->  Round-Robin across workers (Farms all 4 accounts simultaneously)"
     echo "================================================================"
-    read -r -p "Select option [1-5, Enter for default 1]: " USER_CHOICE
+    read -r -p "Select option [1-6, Enter for default 1]: " USER_CHOICE
     USER_CHOICE="${USER_CHOICE:-1}"
 
     case "$USER_CHOICE" in
@@ -120,15 +127,19 @@ elif [ -t 0 ]; then
             TARGET_URL="$ACCOUNT_3_URL"
             TARGET_EMAIL="$ACCOUNT_3_EMAIL"
             ;;
-        4|custom)
+        4|dai)
+            TARGET_URL="$ACCOUNT_4_URL"
+            TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+            ;;
+        5|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
             TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_1_URL}"
             TARGET_EMAIL="Custom Account"
             ;;
-        5|all|distribute)
+        6|all|distribute)
             ROUND_ROBIN=true
-            TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com)"
-            TARGET_URL="Distributed across 3 accounts"
+            TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com, dai@gmail.com)"
+            TARGET_URL="Distributed across 4 accounts"
             ;;
         *)
             TARGET_URL="$ACCOUNT_1_URL"
@@ -336,9 +347,9 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
 
     # Assign worker target URL (round-robin or single selection)
     if [[ "$ROUND_ROBIN" == "true" ]]; then
-        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL")
-        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL")
-        IDX=$(( i % 3 ))
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+        IDX=$(( i % 4 ))
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
     else
