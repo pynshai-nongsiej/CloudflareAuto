@@ -63,3 +63,5 @@ Thumbs.db
 
 # Local tool caches
 .opencode/
+logs/
+rate_limit_stats.json

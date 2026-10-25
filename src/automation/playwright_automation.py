@@ -11,6 +11,7 @@ import json
 import random
 import re
 import sys
+import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -290,7 +291,7 @@ async def _take_screenshot(page: Page, label: str, log: Callable, save: bool = F
 async def register_and_verify(
     client: Optional[TempMailClient] = None,
     headed: bool = False,
-    timeout: int = 60,
+    timeout: int = 90,
     cleanup_inbox: bool = False,
     log_fn: Optional[Callable[[str], None]] = None,
     target_url: Optional[str] = None,
@@ -539,9 +540,16 @@ async def register_and_verify(
             # ── Step 6: Wait for OTP page ──
             log("[*] Waiting for OTP verification screen...")
 
-            # The SPA may navigate to /otp or show OTP inputs on the same page
+            # The SPA may navigate to /otp or show OTP inputs on the same page.
+            # Allow extended wait time (up to 45s or 50% of timeout) for slow networks or server processing.
             otp_found = False
-            for attempt in range(5):
+            max_otp_wait = max(45, int(timeout * 0.5))
+            start_wait = time.time()
+            reclick_done = False
+
+            while (time.time() - start_wait) < max_otp_wait:
+                elapsed = int(time.time() - start_wait)
+
                 # Check if server returned rate limit error
                 rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
                 if rate_limit:
@@ -550,10 +558,16 @@ async def register_and_verify(
                     log(f"[!] ⚠️ Rate limit encountered: {msg}")
                     raise RateLimitError(wait_sec, msg)
 
+                # Fast check: Did URL navigate to /otp?
+                if "/otp" in page.url:
+                    log(f"[+] Navigated to OTP page: {page.url} (took {elapsed}s)")
+                    otp_found = True
+                    break
+
                 try:
                     # Check if URL changed to /otp
-                    await page.wait_for_url("**/otp**", timeout=2000)
-                    log(f"[+] Navigated to OTP page: {page.url}")
+                    await page.wait_for_url("**/otp**", timeout=1500)
+                    log(f"[+] Navigated to OTP page: {page.url} (took {elapsed}s)")
                     otp_found = True
                     break
                 except Exception:
@@ -562,9 +576,23 @@ async def register_and_verify(
                 # Check if OTP inputs appeared on current page
                 otp_inputs = await _find_otp_inputs(page)
                 if len(otp_inputs) >= 4:
-                    log(f"[+] OTP inputs detected on current page ({len(otp_inputs)} fields)")
+                    log(f"[+] OTP inputs detected on current page ({len(otp_inputs)} fields, took {elapsed}s)")
                     otp_found = True
                     break
+
+                # Self-healing for slow networks: if after 15s we are still on login page and Send OTP is still enabled, retry click once
+                if not reclick_done and elapsed >= 15 and "/otp" not in page.url:
+                    try:
+                        retry_btn = await _find_send_otp_button(page)
+                        if retry_btn and await retry_btn.is_visible() and await retry_btn.is_enabled():
+                            log(f"[*] OTP screen not reached after {elapsed}s; re-clicking Send OTP button...")
+                            await retry_btn.click()
+                            reclick_done = True
+                    except Exception:
+                        pass
+
+                if elapsed > 0 and elapsed % 5 == 0:
+                    log(f"[*] Waiting for OTP screen to load ({elapsed}/{max_otp_wait}s)...")
 
                 await asyncio.sleep(1)
 
@@ -578,7 +606,7 @@ async def register_and_verify(
                     raise RateLimitError(wait_sec, msg)
 
                 await _take_screenshot(page, "no_otp_page", log)
-                raise TimeoutError(f"OTP page/inputs not found after clicking Send OTP. Current URL: {page.url}")
+                raise TimeoutError(f"OTP page/inputs not found after clicking Send OTP (waited {max_otp_wait}s). Current URL: {page.url}")
 
             await asyncio.sleep(1)  # Let the page settle
 
