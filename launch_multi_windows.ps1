@@ -78,7 +78,6 @@ if ($Action -eq "stop" -or $args -contains "stop") {
 }
 
 # ── Account Selection ────────────────────────────────────────
-$RoundRobin = $false
 $TargetEmail = ""
 
 # Handle parameter overrides if passed
@@ -94,10 +93,6 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
 } elseif ($Account -eq "4" -or $Account -eq "dai" -or $Account -eq "dai@gmail.com") {
     $TargetUrl = $Account4Url
     $TargetEmail = $Account4Email
-} elseif ($Account -eq "6" -or $Account -eq "all" -or $Account -eq "distribute" -or $Account -eq "round-robin") {
-    $RoundRobin = $true
-    $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email, $Account4Email)"
-    $TargetUrl = "Distributed across 4 accounts"
 } elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
     $TargetEmail = "Custom URL"
 } else {
@@ -112,9 +107,8 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
         Write-Host "  [3] $Account3Email  ->  $Account3Url"
         Write-Host "  [4] $Account4Email  ->  $Account4Url"
         Write-Host "  [5] Custom URL     ->  [Enter your own referral link]"
-        Write-Host "  [6] Distribute     ->  Round-Robin across workers (Farms all 4 accounts simultaneously)"
         Write-Host "================================================================" -ForegroundColor Cyan
-        $choice = Read-Host "Select option [1-6, Enter for default 2]"
+        $choice = Read-Host "Select option [1-5, Enter for default 2]"
         if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "2" }
 
         switch ($choice.Trim().ToLower()) {
@@ -139,11 +133,6 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
                     $TargetUrl = $customInput.Trim()
                     $TargetEmail = "Custom Account"
                 }
-            }
-            "6" {
-                $RoundRobin = $true
-                $TargetEmail = "Round-Robin ($Account1Email, $Account2Email, $Account3Email, $Account4Email)"
-                $TargetUrl = "Distributed across 4 accounts"
             }
             default {
                 $TargetUrl = $Account2Url
@@ -244,9 +233,7 @@ Write-Host "  Workers   : $NumWindows ($($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
 Write-Host "  Pacing    : $DelayMin-$DelayMax`s (1-2 min) between runs"
 Write-Host "  Target    : $TargetEmail"
-if (-not $RoundRobin) {
-    Write-Host "  URL       : $TargetUrl"
-}
+Write-Host "  URL       : $TargetUrl"
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -268,17 +255,8 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $jitter = $Rng.Next(5, 16)
     $delay = $baseDelay + $jitter
 
-    # Assign worker target URL (round-robin or single selection)
-    if ($RoundRobin) {
-        $accounts = @($Account1Url, $Account2Url, $Account3Url, $Account4Url)
-        $emails = @($Account1Email, $Account2Email, $Account3Email, $Account4Email)
-        $idx = $i % 4
-        $wUrl = $accounts[$idx]
-        $wEmail = $emails[$idx]
-    } else {
-        $wUrl = $TargetUrl
-        $wEmail = $TargetEmail
-    }
+    $wUrl = $TargetUrl
+    $wEmail = $TargetEmail
 
     $scriptContent = @"
 @echo off

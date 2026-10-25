@@ -56,7 +56,6 @@ if [[ "${1:-}" == "stop" ]]; then
 fi
 
 # ── Account Selection ────────────────────────────────────────
-ROUND_ROBIN=false
 TARGET_URL=""
 TARGET_EMAIL=""
 
@@ -77,10 +76,6 @@ elif [[ "$ARG1" == "3" || "$ARG1" == "jn" || "$ARG1" == "jn@gmail.com" ]]; then
 elif [[ "$ARG1" == "4" || "$ARG1" == "dai" || "$ARG1" == "dai@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_4_URL"
     TARGET_EMAIL="$ACCOUNT_4_EMAIL"
-elif [[ "$ARG1" == "6" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
-    ROUND_ROBIN=true
-    TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com, dai@gmail.com)"
-    TARGET_URL="Distributed across 4 accounts"
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
 elif [ -t 0 ]; then
@@ -92,9 +87,8 @@ elif [ -t 0 ]; then
     echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL"
     echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL"
     echo "  [5] Custom URL     ->  [Enter your own referral link]"
-    echo "  [6] Distribute     ->  Round-Robin across workers (Farms all 4 accounts simultaneously)"
     echo "================================================================"
-    read -r -p "Select option [1-6, Enter for default 1]: " USER_CHOICE
+    read -r -p "Select option [1-5, Enter for default 1]: " USER_CHOICE
     USER_CHOICE="${USER_CHOICE:-1}"
 
     case "$USER_CHOICE" in
@@ -114,11 +108,6 @@ elif [ -t 0 ]; then
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
             TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_1_URL}"
             TARGET_EMAIL="Custom Account"
-            ;;
-        6|all|distribute)
-            ROUND_ROBIN=true
-            TARGET_EMAIL="Round-Robin (pn@gmail.com, dd@gmail.com, jn@gmail.com, dai@gmail.com)"
-            TARGET_URL="Distributed across 4 accounts"
             ;;
         *)
             TARGET_URL="$ACCOUNT_1_URL"
@@ -176,9 +165,7 @@ echo "  Screen  : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 echo "  Pacing  : ${DELAY_MIN}-${DELAY_MAX}s (1-2 min) between runs"
 echo "  Referrer: $REFERRER (Instagram, Telegram, Facebook, YouTube, etc.)"
 echo "  Target  : $TARGET_EMAIL"
-if [[ "$ROUND_ROBIN" != "true" ]]; then
-    echo "  URL     : $TARGET_URL"
-fi
+echo "  URL     : $TARGET_URL"
 echo "================================================================"
 echo ""
 
@@ -206,17 +193,8 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     LABEL="Worker-${NUM}"
     WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
 
-    # Assign worker target URL (round-robin or single selection)
-    if [[ "$ROUND_ROBIN" == "true" ]]; then
-        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
-        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
-        IDX=$(( i % 4 ))
-        WORKER_URL="${ACCOUNTS[$IDX]}"
-        WORKER_ACCOUNT="${EMAILS[$IDX]}"
-    else
-        WORKER_URL="$TARGET_URL"
-        WORKER_ACCOUNT="$TARGET_EMAIL"
-    fi
+    WORKER_URL="$TARGET_URL"
+    WORKER_ACCOUNT="$TARGET_EMAIL"
 
     echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}  delay=${DELAY}s"
 
