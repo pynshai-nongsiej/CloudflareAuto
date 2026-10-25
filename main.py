@@ -145,12 +145,12 @@ def parse_args():
         default=120,
         help="Maximum delay in seconds between loop runs (default: 120 = 2 min)",
     )
-    default_referrer = "random" if sys.platform == "darwin" else "none"
+    default_referrer = "none"
     parser.add_argument(
         "--referrer",
         type=str,
         default=default_referrer,
-        help="Simulated inbound referral platform (macOS only): instagram, telegram, facebook, youtube, twitter, reddit, random, or none",
+        help="Optional simulated inbound referral platform: instagram, telegram, facebook, youtube, twitter, reddit, random, or none (default: none)",
     )
     parser.add_argument(
         "--provider",

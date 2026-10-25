@@ -24,7 +24,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUM_WINDOWS="${NUM_WINDOWS:-5}"
 MODE="${MODE:-direct}"
-REFERRER="${REFERRER:-random}"
+REFERRER="${REFERRER:-none}"
 DELAY_MIN="${DELAY_MIN:-60}"
 DELAY_MAX="${DELAY_MAX:-120}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
@@ -244,7 +244,7 @@ echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
 while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --referrer "${REFERRER}"
+    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX}
     echo ""
     echo "[${LABEL}] Process exited -- restarting in 5s..."
     sleep 5
