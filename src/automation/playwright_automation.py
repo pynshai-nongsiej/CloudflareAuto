@@ -297,6 +297,7 @@ async def register_and_verify(
     target_url: Optional[str] = None,
     referrer: Optional[str] = "random",
     save_screenshots: bool = False,
+    proxy: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
     Screenshots are disabled by default and cleaned up automatically to avoid clogging storage.
@@ -327,6 +328,10 @@ async def register_and_verify(
     log(f"    TZ={fp.timezone} | Viewport={fp.viewport_width}x{fp.viewport_height} | "
         f"Scale={fp.device_scale_factor}")
 
+    # Check for proxy server (explicit CLI argument or PROXY_SERVER env var)
+    import os
+    proxy_server = proxy or os.environ.get("PROXY_SERVER")
+
     # ── Step 1: Create temporary email (TempMail.Plus random name & domain) ──
     log("[*] Creating temporary email on TempMail.Plus...")
     inbox = mail_client.create_inbox()
@@ -336,11 +341,16 @@ async def register_and_verify(
 
     async with async_playwright() as p:
         # ── Step 2: Launch browser with stealth config ──
+        launch_kwargs = {
+            "headless": not headed,
+            "args": get_launch_args(),
+        }
+        if proxy_server:
+            log(f"[*] 🛡️ Routing browser traffic via Proxy/VPN: {proxy_server}")
+            launch_kwargs["proxy"] = {"server": proxy_server}
+
         log(f"[*] Launching Chromium (headed={headed}) with stealth fingerprint...")
-        browser = await p.chromium.launch(
-            headless=not headed,
-            args=get_launch_args(),
-        )
+        browser = await p.chromium.launch(**launch_kwargs)
 
         context_opts = get_playwright_context_options(fp)
         if ref_info:
@@ -529,9 +539,9 @@ async def register_and_verify(
             log("[*] Waiting for OTP verification screen...")
 
             # The SPA may navigate to /otp or show OTP inputs on the same page.
-            # Allow extended wait time (up to 45s or 50% of timeout) for slow networks or server processing.
+            # Allow extended wait time (at least 2 minutes / 120s) for slow networks or server processing.
             otp_found = False
-            max_otp_wait = max(45, int(timeout * 0.5))
+            max_otp_wait = max(120, int(timeout))
             start_wait = time.time()
             reclick_done = False
 
@@ -568,8 +578,8 @@ async def register_and_verify(
                     otp_found = True
                     break
 
-                # Self-healing for slow networks: if after 15s we are still on login page and Send OTP is still enabled, retry click once
-                if not reclick_done and elapsed >= 15 and "/otp" not in page.url:
+                # Self-healing for slow networks: if after 25s we are still on login page and Send OTP is still enabled, retry click once
+                if not reclick_done and elapsed >= 25 and "/otp" not in page.url:
                     try:
                         retry_btn = await _find_send_otp_button(page)
                         if retry_btn and await retry_btn.is_visible() and await retry_btn.is_enabled():
@@ -600,17 +610,18 @@ async def register_and_verify(
 
             # ── Step 7: Poll for OTP code ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
+            otp_timeout = max(120, timeout)
             otp_code = await asyncio.to_thread(
                 mail_client.wait_for_otp,
                 email_address,
-                timeout=timeout,
+                timeout=otp_timeout,
                 poll_interval=2.0,
                 log_callback=log,
             )
 
             if not otp_code:
                 await _take_screenshot(page, "otp_timeout", log)
-                raise TimeoutError(f"OTP code did not arrive within {timeout} seconds.")
+                raise TimeoutError(f"OTP code did not arrive within {otp_timeout} seconds.")
 
             log(f"[+] OTP received: {otp_code}")
 

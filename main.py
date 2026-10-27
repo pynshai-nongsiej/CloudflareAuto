@@ -13,6 +13,7 @@ Run modes:
 
 import argparse
 import asyncio
+import json
 import random
 import sys
 import time
@@ -107,9 +108,35 @@ DEFAULT_TARGET_URL = (
 )
 
 
+def log_event(args, event_type: str, details: dict = None):
+    """Write an atomic event record to logs/events.jsonl for dashboard reporting."""
+    try:
+        events_file = PROJECT_ROOT / "logs" / "events.jsonl"
+        events_file.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timestamp": time.time(),
+            "worker_id": getattr(args, "worker_id", "Worker-??"),
+            "account": getattr(args, "target_email", "Unknown"),
+            "target_url": getattr(args, "target_url", ""),
+            "event": event_type,
+        }
+        if details:
+            record.update(details)
+        with open(events_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="TenBox Websurfer Auto-Registration & OTP Verification via TempMail"
+    )
+    parser.add_argument(
+        "--worker-id",
+        type=str,
+        default="Worker-01",
+        help="Worker identifier for dashboard logging (e.g. Worker-01)",
     )
     parser.add_argument(
         "--mode",
@@ -136,14 +163,14 @@ def parse_args():
     parser.add_argument(
         "--delay-min",
         type=int,
-        default=60,
-        help="Minimum delay in seconds between loop runs (default: 60 = 1 min)",
+        default=0,
+        help="Minimum delay in seconds between loop runs (default: 0)",
     )
     parser.add_argument(
         "--delay-max",
         type=int,
-        default=120,
-        help="Maximum delay in seconds between loop runs (default: 120 = 2 min)",
+        default=0,
+        help="Maximum delay in seconds between loop runs (default: 0)",
     )
     default_referrer = "none"
     parser.add_argument(
@@ -173,8 +200,8 @@ def parse_args():
     parser.add_argument(
         "--timeout",
         type=int,
-        default=90,
-        help="Timeout in seconds when waiting for OTP code delivery (default: 90)",
+        default=120,
+        help="Timeout in seconds when waiting for OTP code delivery (default: 120)",
     )
     parser.add_argument(
         "--keep-inbox",
@@ -186,6 +213,17 @@ def parse_args():
         type=str,
         default=DEFAULT_TARGET_URL,
         help="Target registration/referral URL or preset ('1', '2', '3', 'pn', 'dd', 'jn')",
+    )
+    parser.add_argument(
+        "--proxy",
+        type=str,
+        default=None,
+        help="Optional HTTP/SOCKS5 proxy server (e.g. socks5://127.0.0.1:40000)",
+    )
+    parser.add_argument(
+        "--exit-on-rate-limit",
+        action="store_true",
+        help="Exit immediately (code 42) and create trigger file on rate limit cooldown to trigger VPN rotation",
     )
     args = parser.parse_args()
     resolved_url, resolved_email = resolve_target_url(args.target_url)
@@ -237,6 +275,7 @@ async def run_direct_single(args) -> dict:
         cleanup_inbox=not args.keep_inbox,
         target_url=getattr(args, "target_url", None),
         referrer=getattr(args, "referrer", "random"),
+        proxy=getattr(args, "proxy", None),
     )
 
     return result
@@ -266,7 +305,7 @@ def print_result(result: dict, run_number: int = 0):
 
 
 async def run_loop(args):
-    """Run the automation in an unlimited (or counted) loop with human pacing (1-2 min delays)."""
+    """Run the automation in an unlimited (or counted) loop without cooldowns."""
     max_runs = args.count if args.count > 0 else float('inf')
     delay_min = args.delay_min
     delay_max = args.delay_max
@@ -278,12 +317,15 @@ async def run_loop(args):
     start_time = time.time()
 
     print("=" * 60)
-    print("  🔄 TENBOX AUTOMATION LOOP -- HUMAN PACING")
+    print("  🔄 TENBOX AUTOMATION LOOP")
     print("=" * 60)
     print(f"  Mode:         {args.mode}")
     print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
-    delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
-    print(f"  Pacing:       {delay_desc} between runs")
+    if delay_max > 0:
+        delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
+        print(f"  Pacing:       {delay_desc} between runs")
+    else:
+        print(f"  Pacing:       No cooldown (continuous)")
     if sys.platform == "darwin":
         print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
     print(f"  Target URL:   {args.target_url}")
@@ -308,12 +350,20 @@ async def run_loop(args):
             try:
                 result = await run_direct_single(args)
                 successes += 1
+                log_event(args, "success", {"email": result.get("email", ""), "otp": result.get("otp", "")})
                 print_result(result, run_number)
 
             except KeyboardInterrupt:
                 raise
             except RateLimitError as rle:
                 failures += 1
+                log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
+                try:
+                    flag_file = Path("/tmp/cloudflare_rate_limit_triggered.flag")
+                    flag_file.write_text(f"rate_limited at {time.time()} by {args.target_url}\n")
+                except Exception:
+                    pass
+
                 wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 900
                 wait_time += 30  # safety buffer
                 resume_time = time.strftime("%H:%M:%S", time.localtime(time.time() + wait_time))
@@ -325,6 +375,11 @@ async def run_loop(args):
                 print(f"     Cooldown:       {wait_time}s (~{mins}m {secs}s)")
                 print(f"     Target Resume:  {resume_time}")
                 print(f"{'=' * 60}")
+
+                if getattr(args, "exit_on_rate_limit", False):
+                    print(f"  ⚡ Immediate exit triggered (--exit-on-rate-limit). Signal sent for VPN rotation.")
+                    sys.exit(42)
+
                 # Periodic updates while waiting so user knows process is active
                 remaining = wait_time
                 while remaining > 0:
@@ -339,18 +394,23 @@ async def run_loop(args):
                 continue
             except Exception as e:
                 failures += 1
+                log_event(args, "failure", {"error": str(e)[:120]})
                 print(f"\n  ❌ Run #{run_number} FAILED: {e}")
-                print(f"     Pausing 15s before next attempt...")
-                await asyncio.sleep(15)
 
-            # Random delay before next run (skip if last run)
-            if run_number < max_runs:
+            # If rate limit flag was set by any worker, do not start a new run on this burnt IP
+            if getattr(args, "exit_on_rate_limit", False) and Path("/tmp/cloudflare_rate_limit_triggered.flag").exists():
+                print(f"  [Worker] Current IP rate-limited across fleet. Finishing batch session.")
+                sys.exit(42)
+
+            # Delay before next run (skip if last run or if delay_max is 0)
+            if run_number < max_runs and delay_max > 0:
                 delay = random.uniform(delay_min, delay_max)
-                mins = int(delay // 60)
-                secs = int(delay % 60)
-                time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
-                print(f"\n  ⏳ Waiting {delay:.1f}s (~{time_str}) before next run...")
-                await asyncio.sleep(delay)
+                if delay > 0:
+                    mins = int(delay // 60)
+                    secs = int(delay % 60)
+                    time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+                    print(f"\n  ⏳ Waiting {delay:.1f}s (~{time_str}) before next run...")
+                    await asyncio.sleep(delay)
 
     except KeyboardInterrupt:
         print(f"\n\n{'=' * 60}")

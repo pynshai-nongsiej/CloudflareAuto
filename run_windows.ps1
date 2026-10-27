@@ -15,8 +15,8 @@ param(
     [switch]$Headed,
     [switch]$Loop,
     [int]$Count = 0,
-    [int]$DelayMin = 60,
-    [int]$DelayMax = 120,
+    [int]$DelayMin = 0,
+    [int]$DelayMax = 0,
     [string]$Provider = "",
     [string]$Model = "",
     [string]$TargetUrl = "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"

@@ -38,6 +38,11 @@ env/
 .env
 .env.local
 .env.*.local
+*.key
+*.key.pub
+.nord_auth*
+*.ovpn
+ovpn/
 
 # Screenshots & Temporary automation files
 websurfer_screenshots/
@@ -65,3 +70,6 @@ Thumbs.db
 .opencode/
 logs/
 rate_limit_stats.json
+scratch/
+ovpn_configs/
+

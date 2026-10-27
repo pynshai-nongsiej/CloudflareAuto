@@ -82,14 +82,14 @@ goto pause_and_menu
 :opt_loop_unlimited
 echo.
 echo [*] Starting Unlimited Loop Mode (Headless) - Press Ctrl+C to stop...
-python main.py --mode direct --loop --delay-min 60 --delay-max 120 --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --delay-min 0 --delay-max 0 --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_loop_counted
 echo.
 set /p "NUM_RUNS=How many registrations to run? (e.g. 5, 10): "
 echo [*] Running %NUM_RUNS% registrations (Headless)...
-python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 60 --delay-max 120 --target-url "%TARGET_URL%"
+python main.py --mode direct --loop --count %NUM_RUNS% --delay-min 0 --delay-max 0 --target-url "%TARGET_URL%"
 goto pause_and_menu
 
 :opt_multi

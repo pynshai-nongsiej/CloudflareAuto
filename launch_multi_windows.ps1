@@ -17,12 +17,16 @@
 [CmdletBinding()]
 param(
     [string]$Action = "start",
-    [int]$NumWindows = 5,
+    [int]$WorkersPerLink = 2,
+    [int]$NumWindows = 0,
     [string]$Mode = "direct",
     [string]$TargetUrl = "",
-    [int]$DelayMin = 60,
-    [int]$DelayMax = 120,
-    [string]$Account = ""
+    [int]$DelayMin = 0,
+    [int]$DelayMax = 0,
+    [string]$Account = "",
+    [switch]$Headless,
+    [switch]$BrowserHeaded,
+    [string]$ExtraArgs = ""
 )
 
 # Ensure UTF-8 output encoding in PowerShell console
@@ -71,6 +75,10 @@ if ($Action -eq "stop" -or $args -contains "stop") {
     if (Test-Path $tempScreenshots) {
         Remove-Item -Path $tempScreenshots -Recurse -Force -ErrorAction SilentlyContinue
     }
+    $flag = Join-Path $env:TEMP "cloudflare_rate_limit_triggered.flag"
+    if (Test-Path $flag) {
+        Remove-Item -Path $flag -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "  [+] All CloudflareAuto workers stopped." -ForegroundColor Green
     Write-Host "================================================================" -ForegroundColor Cyan
@@ -78,23 +86,34 @@ if ($Action -eq "stop" -or $args -contains "stop") {
 }
 
 # ── Account Selection ────────────────────────────────────────
+$RoundRobin = $false
 $TargetEmail = ""
 
 # Handle parameter overrides if passed
 if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     $TargetUrl = $Account1Url
     $TargetEmail = $Account1Email
+    if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
 } elseif ($Account -eq "2" -or $Account -eq "dd" -or $Account -eq "dd@gmail.com") {
     $TargetUrl = $Account2Url
     $TargetEmail = $Account2Email
+    if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
 } elseif ($Account -eq "3" -or $Account -eq "jn" -or $Account -eq "jn@gmail.com") {
     $TargetUrl = $Account3Url
     $TargetEmail = $Account3Email
+    if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
 } elseif ($Account -eq "4" -or $Account -eq "dai" -or $Account -eq "dai@gmail.com") {
     $TargetUrl = $Account4Url
     $TargetEmail = $Account4Email
+    if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
+} elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute") {
+    $RoundRobin = $true
+    $TargetEmail = "All 4 Accounts (10 workers total)"
+    $TargetUrl = "Distributed across 4 accounts"
+    if ($NumWindows -le 0) { $NumWindows = 10 }
 } elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
     $TargetEmail = "Custom URL"
+    if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
 } else {
     # Interactive prompt if running in interactive PowerShell
     $isInteractive = $Host.UI.RawUI -ne $null -and [Environment]::UserInteractive
@@ -102,46 +121,66 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
         Write-Host "================================================================" -ForegroundColor Cyan
         Write-Host "   CloudflareAuto -- Select Target Referral Account" -ForegroundColor Cyan
         Write-Host "================================================================" -ForegroundColor Cyan
-        Write-Host "  [1] $Account1Email  ->  $Account1Url"
-        Write-Host "  [2] $Account2Email  ->  $Account2Url  (Default Windows)"
-        Write-Host "  [3] $Account3Email  ->  $Account3Url"
-        Write-Host "  [4] $Account4Email  ->  $Account4Url"
-        Write-Host "  [5] Custom URL     ->  [Enter your own referral link]"
+        Write-Host "  [1] $Account1Email  ->  $Account1Url  ($WorkersPerLink workers)"
+        Write-Host "  [2] $Account2Email  ->  $Account2Url  ($WorkersPerLink workers)"
+        Write-Host "  [3] $Account3Email  ->  $Account3Url  ($WorkersPerLink workers)"
+        Write-Host "  [4] $Account4Email  ->  $Account4Url  ($WorkersPerLink workers)"
+        Write-Host "  [5] All Links       ->  10 workers total distributed across 4 refer links (Default)"
+        Write-Host "  [6] Custom URL      ->  [Enter your own referral link]"
         Write-Host "================================================================" -ForegroundColor Cyan
-        $choice = Read-Host "Select option [1-5, Enter for default 2]"
-        if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "2" }
+        $choice = Read-Host "Select option [1-6, Enter for default 5]"
+        if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "5" }
 
         switch ($choice.Trim().ToLower()) {
             "1" {
                 $TargetUrl = $Account1Url
                 $TargetEmail = $Account1Email
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
+            }
+            "2" {
+                $TargetUrl = $Account2Url
+                $TargetEmail = $Account2Email
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
             "3" {
                 $TargetUrl = $Account3Url
                 $TargetEmail = $Account3Email
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
             "4" {
                 $TargetUrl = $Account4Url
                 $TargetEmail = $Account4Email
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
             "5" {
+                $RoundRobin = $true
+                $TargetEmail = "All 4 Accounts (10 workers total)"
+                $TargetUrl = "Distributed across 4 accounts"
+                if ($NumWindows -le 0) { $NumWindows = 10 }
+            }
+            "6" {
                 $customInput = Read-Host "Enter custom referral URL"
                 if ([string]::IsNullOrWhiteSpace($customInput)) {
-                    $TargetUrl = $Account2Url
-                    $TargetEmail = $Account2Email
+                    $TargetUrl = $Account1Url
+                    $TargetEmail = $Account1Email
                 } else {
                     $TargetUrl = $customInput.Trim()
                     $TargetEmail = "Custom Account"
                 }
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
             default {
-                $TargetUrl = $Account2Url
-                $TargetEmail = $Account2Email
+                $RoundRobin = $true
+                $TargetEmail = "All 4 Accounts (10 workers total)"
+                $TargetUrl = "Distributed across 4 accounts"
+                if ($NumWindows -le 0) { $NumWindows = 10 }
             }
         }
     } else {
-        $TargetUrl = $Account2Url
-        $TargetEmail = $Account2Email
+        $RoundRobin = $true
+        $TargetEmail = "All 4 Accounts (10 workers total)"
+        $TargetUrl = "Distributed across 4 accounts"
+        if ($NumWindows -le 0) { $NumWindows = 10 }
     }
 }
 
@@ -181,7 +220,10 @@ try {
     # Fallback to defaults
 }
 
-if ($NumWindows -le 3) {
+if ($NumWindows -le 2) {
+    $Cols = $NumWindows
+    $Rows = 1
+} elseif ($NumWindows -le 4) {
     $Cols = $NumWindows
     $Rows = 1
 } elseif ($NumWindows -le 6) {
@@ -229,16 +271,30 @@ Write-Host "================================================================" -F
 Write-Host "  Project   : $ProjectDir"
 Write-Host "  Python    : $Python"
 Write-Host "  Mode      : $Mode (--loop)"
-Write-Host "  Workers   : $NumWindows ($($Cols)x$($Rows) grid)"
+Write-Host "  Workers   : $NumWindows (arranged in $($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
-Write-Host "  Pacing    : $DelayMin-$DelayMax`s (1-2 min) between runs"
+Write-Host "  Browser   : $(if ($BrowserHeaded) { 'Headed (UI visible)' } else { 'Headless' })"
+Write-Host "  Terminal  : $(if ($Headless) { 'Hidden Background' } else { 'Visible Windows' })"
+if ($DelayMax -gt 0) {
+    Write-Host "  Pacing    : $DelayMin-$DelayMax`s between runs"
+} else {
+    Write-Host "  Pacing    : No cooldown (continuous)"
+}
 Write-Host "  Target    : $TargetEmail"
-Write-Host "  URL       : $TargetUrl"
+if (-not $RoundRobin) {
+    Write-Host "  URL       : $TargetUrl"
+}
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── Generate Worker Scripts ──────────────────────────────────
-$Rng = New-Object System.Random
+$extraFlags = "--exit-on-rate-limit"
+if ($BrowserHeaded) {
+    $extraFlags += " --headed"
+}
+if (-not [string]::IsNullOrWhiteSpace($ExtraArgs)) {
+    $extraFlags += " $ExtraArgs"
+}
 
 for ($i = 0; $i -lt $NumWindows; $i++) {
     $num = "{0:D2}" -f ($i + 1)
@@ -250,13 +306,21 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $x = $StartX + $Margin + ($col * ($WinW + $Margin))
     $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
 
-    # Stagger launch start times (~30s intervals: Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s)
-    $baseDelay = $i * 30
-    $jitter = $Rng.Next(5, 16)
-    $delay = $baseDelay + $jitter
+    if ($RoundRobin) {
+        $accounts = @($Account1Url, $Account2Url, $Account3Url, $Account4Url)
+        $emails = @($Account1Email, $Account2Email, $Account3Email, $Account4Email)
+        $idx = $i % $accounts.Length
+        $wUrl = $accounts[$idx]
+        $wEmail = $emails[$idx]
+    } else {
+        $wUrl = $TargetUrl
+        $wEmail = $TargetEmail
+    }
 
-    $wUrl = $TargetUrl
-    $wEmail = $TargetEmail
+    # Stagger delays evenly across workers
+    $baseDelay = ($i % 4) * 15
+    $offset = [math]::Floor($i / 4) * 3
+    $delay = $baseDelay + $offset
 
     $scriptContent = @"
 @echo off
@@ -278,7 +342,11 @@ echo [$label] Referral Account: $wEmail
 echo.
 
 :loop_forever
-"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax
+"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --worker-id $label --timeout 120 $extraFlags
+if %ERRORLEVEL% equ 42 (
+    echo [$label] Rate limit exit triggered (code 42) -- finishing batch for VPN rotation.
+    exit /b 42
+)
 echo.
 echo [$label] Process exited -- restarting in 5s...
 timeout /t 5 /nobreak >nul
@@ -291,7 +359,11 @@ goto loop_forever
 Write-Host ""
 
 # ── Launch and Arrange Windows in Tiled Grid ─────────────────
-Write-Host "[*] Launching $NumWindows terminal windows arranged in a $($Cols)x$($Rows) grid..." -ForegroundColor Yellow
+if ($Headless) {
+    Write-Host "[*] Launching $NumWindows workers headlessly in background..." -ForegroundColor Yellow
+} else {
+    Write-Host "[*] Launching $NumWindows terminal windows arranged in a $($Cols)x$($Rows) grid..." -ForegroundColor Yellow
+}
 
 for ($i = 0; $i -lt $NumWindows; $i++) {
     $num = "{0:D2}" -f ($i + 1)
@@ -303,34 +375,40 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $x = $StartX + $Margin + ($col * ($WinW + $Margin))
     $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
 
-    # Launch worker in a separate console window
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$workerScript`""
+    if ($Headless) {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$workerScript`"" -WindowStyle Hidden
+    } else {
+        # Launch worker in a separate console window
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$workerScript`""
 
-    # Reposition window into its exact grid slot
-    Start-Sleep -Milliseconds 350
-    for ($attempt = 0; $attempt -lt 15; $attempt++) {
-        $hwnd = [Win32Window]::FindWindow($null, $label)
-        if ($hwnd -ne [IntPtr]::Zero) {
-            [Win32Window]::MoveWindow($hwnd, $x, $y, $WinW, $WinH, $true) | Out-Null
-            break
+        # Reposition window into its exact grid slot
+        Start-Sleep -Milliseconds 350
+        for ($attempt = 0; $attempt -lt 15; $attempt++) {
+            $hwnd = [Win32Window]::FindWindow($null, $label)
+            if ($hwnd -ne [IntPtr]::Zero) {
+                [Win32Window]::MoveWindow($hwnd, $x, $y, $WinW, $WinH, $true) | Out-Null
+                break
+            }
+            Start-Sleep -Milliseconds 150
         }
-        Start-Sleep -Milliseconds 150
     }
 }
 
-# Final pass to ensure all windows are firmly snapped into the grid layout
-Start-Sleep -Seconds 1
-for ($i = 0; $i -lt $NumWindows; $i++) {
-    $num = "{0:D2}" -f ($i + 1)
-    $label = "Worker-$num"
-    $col = $i % $Cols
-    $row = [math]::Floor($i / $Cols)
-    $x = $StartX + $Margin + ($col * ($WinW + $Margin))
-    $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
+if (-not $Headless) {
+    # Final pass to ensure all windows are firmly snapped into the grid layout
+    Start-Sleep -Seconds 1
+    for ($i = 0; $i -lt $NumWindows; $i++) {
+        $num = "{0:D2}" -f ($i + 1)
+        $label = "Worker-$num"
+        $col = $i % $Cols
+        $row = [math]::Floor($i / $Cols)
+        $x = $StartX + $Margin + ($col * ($WinW + $Margin))
+        $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
 
-    $hwnd = [Win32Window]::FindWindow($null, $label)
-    if ($hwnd -ne [IntPtr]::Zero) {
-        [Win32Window]::MoveWindow($hwnd, $x, $y, $WinW, $WinH, $true) | Out-Null
+        $hwnd = [Win32Window]::FindWindow($null, $label)
+        if ($hwnd -ne [IntPtr]::Zero) {
+            [Win32Window]::MoveWindow($hwnd, $x, $y, $WinW, $WinH, $true) | Out-Null
+        }
     }
 }
 

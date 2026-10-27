@@ -24,13 +24,36 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NUM_WINDOWS="${NUM_WINDOWS:-5}"
+WORKERS_PER_LINK="${WORKERS_PER_LINK:-2}"
+NUM_WINDOWS="${NUM_WINDOWS:-}"
 MODE="${MODE:-direct}"
-DELAY_MIN="${DELAY_MIN:-60}"
-DELAY_MAX="${DELAY_MAX:-120}"
+DELAY_MIN="${DELAY_MIN:-0}"
+DELAY_MAX="${DELAY_MAX:-0}"
 METHOD="${METHOD:-auto}"
+EXTRA_ARGS="${EXTRA_ARGS:-}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 TMUX_SESSION="cloudflare-auto"
+
+# Terminal window mode: default headed (visible terminal emulator windows)
+HEADLESS="${HEADLESS:-false}"
+
+# Browser execution mode: default headless (no Chromium GUI popups)
+BROWSER_HEADED="false"
+
+# Parse flags for headless vs headed
+for arg in "$@"; do
+    if [[ "$arg" == "--headless" ]]; then
+        HEADLESS="true"
+    elif [[ "$arg" == "--headed" || "$arg" == "--gui" || "$arg" == "--windows" ]]; then
+        HEADLESS="false"
+    elif [[ "$arg" == "--browser-headed" || "$arg" == "--headed-browser" || "$arg" == "--show-browser" ]]; then
+        BROWSER_HEADED="true"
+    fi
+done
+
+if [[ "$BROWSER_HEADED" == "true" && "$EXTRA_ARGS" != *"--headed"* ]]; then
+    EXTRA_ARGS="$EXTRA_ARGS --headed"
+fi
 
 # Referral Account Presets
 ACCOUNT_1_URL="https://websurfer.1024tenbox.com/referral/XWUPKX2D"
@@ -69,7 +92,10 @@ if [[ "${1:-}" == "stop" ]]; then
     fi
 
     # Terminate any remaining main.py instances
-    pkill -f 'main.py.*--loop' 2>/dev/null || true
+    pkill -f 'main.py' 2>/dev/null || true
+    pkill -f 'worker_.*\.sh' 2>/dev/null || true
+    rm -rf "$TMPDIR_WORKERS"
+    rm -f /tmp/cloudflare_rate_limit_triggered.flag
     rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
     echo "  [+] All workers stopped."
     echo "================================================================"
@@ -77,6 +103,7 @@ if [[ "${1:-}" == "stop" ]]; then
 fi
 
 # ── Account Selection ────────────────────────────────────────
+ROUND_ROBIN=false
 TARGET_URL=""
 TARGET_EMAIL=""
 
@@ -85,60 +112,91 @@ ARG1="${1:-}"
 if [[ "$ARG1" =~ ^https?:// ]]; then
     TARGET_URL="$ARG1"
     TARGET_EMAIL="Custom Account"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$ARG1" == "1" || "$ARG1" == "pn" || "$ARG1" == "pn@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_1_URL"
     TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$ARG1" == "2" || "$ARG1" == "dd" || "$ARG1" == "dd@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_2_URL"
     TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$ARG1" == "3" || "$ARG1" == "jn" || "$ARG1" == "jn@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_3_URL"
     TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$ARG1" == "4" || "$ARG1" == "dai" || "$ARG1" == "dai@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_4_URL"
     TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+elif [[ "$ARG1" == "5" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
+    ROUND_ROBIN=true
+    TARGET_EMAIL="All 4 Accounts (10 workers total)"
+    TARGET_URL="Distributed across 4 accounts"
+    NUM_WINDOWS="${NUM_WINDOWS:-10}"
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [ -t 0 ]; then
     echo "================================================================"
     echo "   CloudflareAuto -- Select Target Referral Account"
     echo "================================================================"
-    echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (Default)"
-    echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL"
-    echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL"
-    echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL"
-    echo "  [5] Custom URL     ->  [Enter your own referral link]"
+    echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (Default - ${WORKERS_PER_LINK} workers)"
+    echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [5] All Links      ->  10 workers total distributed across 4 refer links"
+    echo "  [6] Custom URL     ->  [Enter your own referral link]"
     echo "================================================================"
-    read -r -p "Select option [1-5, Enter for default 1]: " USER_CHOICE
-    USER_CHOICE="${USER_CHOICE:-1}"
+    read -r -p "Select option [1-6, Enter for default 5]: " USER_CHOICE
+    USER_CHOICE="${USER_CHOICE:-5}"
 
     case "$USER_CHOICE" in
+        1|pn)
+            TARGET_URL="$ACCOUNT_1_URL"
+            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
         2|dd)
             TARGET_URL="$ACCOUNT_2_URL"
             TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
         3|jn)
             TARGET_URL="$ACCOUNT_3_URL"
             TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
         4|dai)
             TARGET_URL="$ACCOUNT_4_URL"
             TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        5|custom)
+        5|all|distribute)
+            ROUND_ROBIN=true
+            TARGET_EMAIL="All 4 Accounts (10 workers total)"
+            TARGET_URL="Distributed across 4 accounts"
+            NUM_WINDOWS="${NUM_WINDOWS:-10}"
+            ;;
+        6|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
             TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_1_URL}"
             TARGET_EMAIL="Custom Account"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
         *)
-            TARGET_URL="$ACCOUNT_1_URL"
-            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+            ROUND_ROBIN=true
+            TARGET_EMAIL="All 4 Accounts (10 workers total)"
+            TARGET_URL="Distributed across 4 accounts"
+            NUM_WINDOWS="${NUM_WINDOWS:-10}"
             ;;
     esac
 else
-    # Non-interactive fallback default
-    TARGET_URL="${TARGET_URL:-$ACCOUNT_1_URL}"
-    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+    # Non-interactive fallback default: 10 workers distributed across all 4 accounts
+    ROUND_ROBIN=true
+    TARGET_EMAIL="All 4 Accounts (10 workers total)"
+    TARGET_URL="Distributed across 4 accounts"
+    NUM_WINDOWS="${NUM_WINDOWS:-10}"
 fi
 
 # ── Clean up old worker directory and screenshots ────────────
@@ -237,7 +295,15 @@ detect_gui_terminal() {
 SELECTED_METHOD="$METHOD"
 GUI_TERMINAL="none"
 
-if [[ "$SELECTED_METHOD" == "auto" ]]; then
+if [[ "$HEADLESS" == "true" ]]; then
+    if [[ "$SELECTED_METHOD" == "auto" ]]; then
+        if command -v tmux &>/dev/null; then
+            SELECTED_METHOD="tmux"
+        else
+            SELECTED_METHOD="bg"
+        fi
+    fi
+elif [[ "$SELECTED_METHOD" == "auto" ]]; then
     HAS_DISPLAY=false
     if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
         HAS_DISPLAY=true
@@ -268,7 +334,10 @@ read -r SCREEN_W SCREEN_H < <(get_screen_geometry)
 SCREEN_W="${SCREEN_W:-1920}"
 SCREEN_H="${SCREEN_H:-1080}"
 
-if (( NUM_WINDOWS <= 3 )); then
+if (( NUM_WINDOWS <= 2 )); then
+    COLS=$NUM_WINDOWS
+    ROWS=1
+elif (( NUM_WINDOWS <= 4 )); then
     COLS=$NUM_WINDOWS
     ROWS=1
 elif (( NUM_WINDOWS <= 6 )); then
@@ -306,14 +375,21 @@ echo "================================================================"
 echo "  Project   : $PROJECT_DIR"
 echo "  Python    : $PYTHON"
 echo "  Mode      : $MODE (--loop)"
-echo "  Workers   : $NUM_WINDOWS  (${COLS}x${ROWS} grid)"
+echo "  Workers   : $NUM_WINDOWS (arranged in ${COLS}x${ROWS} grid)"
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 fi
-echo "  Pacing    : ${DELAY_MIN}-${DELAY_MAX}s (1-2 min) between runs"
+if (( DELAY_MAX > 0 )); then
+    echo "  Pacing    : ${DELAY_MIN}-${DELAY_MAX}s between runs"
+else
+    echo "  Pacing    : No cooldown (continuous)"
+fi
 echo "  Target    : $TARGET_EMAIL"
-echo "  URL       : $TARGET_URL"
+if [[ "$ROUND_ROBIN" != "true" ]]; then
+    echo "  URL       : $TARGET_URL"
+fi
 echo "  Backend   : $SELECTED_METHOD $([[ "$SELECTED_METHOD" == "gui" ]] && echo "($GUI_TERMINAL)" || true)"
+echo "  Browser   : $([[ "$BROWSER_HEADED" == "true" ]] && echo "Headed (UI visible)" || echo "Headless")"
 echo "================================================================"
 echo ""
 
@@ -328,12 +404,21 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     X=$(( MARGIN + COL * (WIN_W + MARGIN) ))
     Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
 
-    # Stagger launch start times: Worker 1: ~10s, Worker 2: ~40s, Worker 3: ~70s, Worker 4: ~100s, Worker 5: ~130s
-    BASE_DELAY=$(( i * 30 ))
-    DELAY=$(( BASE_DELAY + $(rand_between 5 15) ))
+    if [[ "$ROUND_ROBIN" == "true" ]]; then
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+        IDX=$(( i % ${#ACCOUNTS[@]} ))
+        WORKER_URL="${ACCOUNTS[$IDX]}"
+        WORKER_ACCOUNT="${EMAILS[$IDX]}"
+    else
+        WORKER_URL="$TARGET_URL"
+        WORKER_ACCOUNT="$TARGET_EMAIL"
+    fi
 
-    WORKER_URL="$TARGET_URL"
-    WORKER_ACCOUNT="$TARGET_EMAIL"
+    # Stagger delays evenly across workers
+    BASE_DELAY=$(( (i % 4) * 15 ))
+    OFFSET=$(( (i / 4) * 3 ))
+    DELAY=$(( BASE_DELAY + OFFSET ))
 
     cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
@@ -354,7 +439,12 @@ echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
 while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX}
+    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
+    EXIT_CODE=\$?
+    if [[ \$EXIT_CODE -eq 42 ]]; then
+        echo "[${LABEL}] Rate limit exit triggered (code 42) -- finishing batch for VPN rotation."
+        exit 42
+    fi
     echo ""
     echo "[${LABEL}] Process exited -- restarting in 5s..."
     sleep 5
