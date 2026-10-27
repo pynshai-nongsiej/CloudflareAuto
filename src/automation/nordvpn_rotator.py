@@ -53,7 +53,7 @@ def get_openvpn_bin() -> str:
                 return str(cand)
         return shutil.which("openvpn.exe") or shutil.which("openvpn") or "openvpn.exe"
     else:  # Linux / Unix
-        for cand in ["/usr/sbin/openvpn", "/usr/bin/openvpn", "/usr/local/sbin/openvpn"]:
+        for cand in ["/usr/sbin/openvpn", "/usr/bin/openvpn", "/sbin/openvpn", "/bin/openvpn", "/usr/local/sbin/openvpn", "/usr/local/bin/openvpn"]:
             if Path(cand).exists():
                 return cand
         return shutil.which("openvpn") or "openvpn"
@@ -68,9 +68,12 @@ DEFAULT_PASS = "uwXH67Ynz64N3M85r9EuwQxa"
 
 def ensure_auth_file():
     """Ensure the credentials file exists."""
-    if not AUTH_FILE.exists():
+    if not AUTH_FILE.exists() or AUTH_FILE.stat().st_size < 5:
         AUTH_FILE.write_text(f"{DEFAULT_USER}\n{DEFAULT_PASS}\n")
-        AUTH_FILE.chmod(0o600)
+    try:
+        AUTH_FILE.chmod(0o644)
+    except Exception:
+        pass
 
 
 def get_all_available_countries() -> list[dict]:
@@ -146,19 +149,34 @@ def disconnect_vpn():
     else:
         # macOS or Linux
         is_root = hasattr(os, "geteuid") and os.geteuid() == 0
-        pkill_cmd = ["pkill", "-f", "openvpn"] if is_root else ["sudo", "-n", "pkill", "-f", "openvpn"]
+        pkill_cmd = ["pkill", "-9", "-f", "openvpn"] if is_root else ["sudo", "-n", "pkill", "-9", "-f", "openvpn"]
         subprocess.run(pkill_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1.5)
+    time.sleep(1.0)
 
 
 def get_current_ip_info() -> dict:
     """Fetch current external IP and location details."""
     try:
         req = urllib.request.Request("https://ipinfo.io/json", headers={"User-Agent": "curl/7.68.0"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             return json.loads(resp.read().decode())
     except Exception:
-        return {"ip": "unknown", "city": "unknown", "country": "unknown"}
+        try:
+            req = urllib.request.Request("https://api.ipify.org?format=json", headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                return json.loads(resp.read().decode())
+        except Exception:
+            return {"ip": "unknown", "city": "unknown", "country": "unknown"}
+
+
+def read_log_file() -> str:
+    """Read OpenVPN log safely."""
+    if Path(LOG_FILE).exists():
+        try:
+            return Path(LOG_FILE).read_text(errors="ignore")
+        except Exception:
+            pass
+    return ""
 
 
 def check_permissions_and_binary() -> bool:
@@ -184,15 +202,6 @@ def check_permissions_and_binary() -> bool:
                 print("   👉 Right-click PowerShell or Command Prompt and select 'Run as Administrator'.\n")
         except Exception:
             pass
-    else:
-        is_root = hasattr(os, "geteuid") and os.geteuid() == 0
-        if not is_root:
-            test = subprocess.run(["sudo", "-n", OPENVPN_BIN, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-            if test.returncode != 0:
-                print("\n⚠️  WARNING: Sudo password required for OpenVPN!")
-                print("   👉 To allow OpenVPN to rotate automatically without password prompts, run:")
-                print(f"      echo \"$USER ALL=(ALL) NOPASSWD: {bin_path}, /usr/bin/pkill\" | sudo tee /etc/sudoers.d/openvpn")
-                print("      sudo chmod 0440 /etc/sudoers.d/openvpn\n")
     return True
 
 
@@ -202,11 +211,10 @@ def connect_to_server(ovpn_path: Path) -> bool:
     disconnect_vpn()
     check_permissions_and_binary()
 
-    # Reset log file with world read/write permissions
+    # Reset log file in /tmp with write access
     try:
         with open(LOG_FILE, "w") as f:
             f.write("")
-        os.chmod(LOG_FILE, 0o666)
     except Exception:
         pass
 
@@ -236,6 +244,7 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--daemon",
             "--writepid", PID_FILE,
             "--log", LOG_FILE,
+            "--verb", "3",
         ])
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
@@ -247,27 +256,42 @@ def connect_to_server(ovpn_path: Path) -> bool:
     connected = False
     while time.time() - start_wait < 18:
         time.sleep(1.5)
-        if Path(LOG_FILE).exists():
-            try:
-                log_text = Path(LOG_FILE).read_text(errors="ignore")
-                if "Initialization Sequence Completed" in log_text:
-                    connected = True
-                    break
-                if "AUTH_FAILED" in log_text:
-                    print("[!] OpenVPN Authentication Failed! Check credentials in .nord_auth.txt")
-                    return False
-            except Exception as e:
-                print(f"[!] Warning reading log: {e}")
+        log_text = read_log_file()
+        if "Initialization Sequence Completed" in log_text:
+            connected = True
+            break
+        if "AUTH_FAILED" in log_text:
+            print("[!] OpenVPN Authentication Failed! Check credentials in .nord_auth.txt")
+            return False
+        if "Cannot open TUN/TAP dev" in log_text:
+            print("[!] Error: /dev/net/tun device unavailable.")
+            return False
 
-    if not connected and Path(LOG_FILE).exists():
+    if not connected:
+        log_tail = read_log_file()
+        if log_tail:
+            lines = log_tail.strip().splitlines()
+            print(f"\n--- OpenVPN Log Details ({LOG_FILE}) ---")
+            print("\n".join(lines[-8:]))
+            print("----------------------------------------\n")
+        return False
+
+    # Verify & fix DNS on Linux if network routing altered nameserver reachability
+    if SYSTEM == "Linux" and connected:
+        import socket
         try:
-            lines = Path(LOG_FILE).read_text(errors="ignore").strip().splitlines()
-            if lines:
-                print(f"\n--- OpenVPN Log Details ({LOG_FILE}) ---")
-                print("\n".join(lines[-8:]))
-                print("----------------------------------------\n")
+            socket.gethostbyname("ipinfo.io")
         except Exception:
-            pass
+            print("[*] Configuring DNS nameservers for VPN tunnel...")
+            if not Path("/tmp/resolv.conf.backup").exists() and Path("/etc/resolv.conf").exists():
+                cp_cmd = ["cp", "/etc/resolv.conf", "/tmp/resolv.conf.backup"] if is_root else ["sudo", "cp", "/etc/resolv.conf", "/tmp/resolv.conf.backup"]
+                subprocess.run(cp_cmd, stderr=subprocess.DEVNULL)
+            dns_entries = "nameserver 103.86.96.100\nnameserver 103.86.99.100\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+            write_cmd = f"echo '{dns_entries}' > /etc/resolv.conf"
+            if is_root:
+                subprocess.run(["sh", "-c", write_cmd], stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(["sudo", "sh", "-c", write_cmd], stderr=subprocess.DEVNULL)
 
     return connected
 
@@ -315,7 +339,14 @@ def rotate_vpn(target_country_name: str = None) -> dict:
 
     success = connect_to_server(ovpn_path)
     if not success:
-        print("[!] Connection did not complete within timeout. Retrying with a different country/server...")
+        print("[!] UDP connection timed out. Retrying with TCP (Port 443)...")
+        disconnect_vpn()
+        ovpn_tcp = download_ovpn_config(hostname, proto="tcp")
+        if ovpn_tcp:
+            success = connect_to_server(ovpn_tcp)
+
+    if not success:
+        print("[!] Retrying with a different country server...")
         disconnect_vpn()
         fallback_countries = [c for c in countries if c["id"] != chosen_country["id"]]
         if fallback_countries:
