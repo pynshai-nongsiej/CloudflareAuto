@@ -151,6 +151,9 @@ def disconnect_vpn():
         is_root = hasattr(os, "geteuid") and os.geteuid() == 0
         pkill_cmd = ["pkill", "-9", "-f", "openvpn"] if is_root else ["sudo", "-n", "pkill", "-9", "-f", "openvpn"]
         subprocess.run(pkill_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if Path("/tmp/resolv.conf.backup").exists():
+            restore_cmd = ["mv", "/tmp/resolv.conf.backup", "/etc/resolv.conf"] if is_root else ["sudo", "-n", "mv", "/tmp/resolv.conf.backup", "/etc/resolv.conf"]
+            subprocess.run(restore_cmd, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
 
 
@@ -213,8 +216,9 @@ def is_tunnel_up() -> bool:
         res = subprocess.run(["ip", "-brief", "addr", "show"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         if res.returncode == 0:
             for line in res.stdout.splitlines():
-                if line.startswith("tun") and "UP" in line:
+                if line.startswith("tun") or line.startswith("utun"):
                     parts = line.split()
+                    # Example: tun0 UNKNOWN 10.100.0.2/20 fe80::...
                     if len(parts) >= 3 and "/" in parts[2]:
                         return True
     except Exception:
