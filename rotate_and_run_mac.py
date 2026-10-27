@@ -39,16 +39,6 @@ ACCOUNTS = [
         "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D",
     },
     {
-        "id": "2",
-        "email": "dd@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
-    },
-    {
-        "id": "3",
-        "email": "jn@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
-    },
-    {
         "id": "4",
         "email": "dai@gmail.com",
         "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33",
@@ -58,13 +48,13 @@ ACCOUNTS = [
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Headless 20-Worker Runner with Live Dashboard & NordVPN Auto-Rotator"
+        description="macOS 10-Worker Runner (pn & dai) with Live Dashboard & NordVPN Auto-Rotator"
     )
     parser.add_argument(
         "--workers-per-link",
         type=int,
         default=5,
-        help="Number of workers per link (default: 5, total 20 across 4 links)",
+        help="Number of workers per link (default: 5, total 10 across pn & dai)",
     )
     parser.add_argument(
         "--mode",
@@ -255,7 +245,8 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
 
     out = []
     out.append("╔═══════════════════════════════════════════════════════════════════════════════╗")
-    out.append("║          🛡️  CLOUDFLARE AUTO -- 20-WORKER DASHBOARD & NORDVPN ROTATOR          ║")
+    out.append("║      🛡️  CLOUDFLARE AUTO -- 10-WORKER DASHBOARD & NORDVPN ROTATOR (macOS)       ║")
+    out.append("║                       Target Accounts: pn & dai (5 workers each)              ║")
     out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
     out.append(f"║  Cycle     : #{cycle:<4} | Uptime: {uptime_str:<8} | Status: {status_msg:<27}║")
     out.append(f"║  Public IP : {ip:<15} | Location: {city}, {country:<4} | ISP: {org:<22}║")

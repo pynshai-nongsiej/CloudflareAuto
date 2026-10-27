@@ -36,11 +36,6 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 
 ACCOUNTS = [
     {
-        "id": "1",
-        "email": "pn@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D",
-    },
-    {
         "id": "2",
         "email": "dd@gmail.com",
         "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
@@ -49,11 +44,6 @@ ACCOUNTS = [
         "id": "3",
         "email": "jn@gmail.com",
         "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
-    },
-    {
-        "id": "4",
-        "email": "dai@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33",
     },
 ]
 
@@ -253,7 +243,8 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
 
     out = []
     out.append("╔═══════════════════════════════════════════════════════════════════════════════╗")
-    out.append("║          🛡️  CLOUDFLARE AUTO -- 10-WORKER DASHBOARD & NORDVPN ROTATOR          ║")
+    out.append("║     🛡️  CLOUDFLARE AUTO -- 10-WORKER DASHBOARD & NORDVPN ROTATOR (Windows)      ║")
+    out.append("║                       Target Accounts: dd & jn (5 workers each)              ║")
     out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
     out.append(f"║  Cycle     : #{cycle:<4} | Uptime: {uptime_str:<8} | Status: {status_msg:<27}║")
     out.append(f"║  Public IP : {ip:<15} | Location: {city}, {country:<4} | ISP: {org:<22}║")
@@ -261,13 +252,13 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
     out.append(f"║  SUCCESS: {stats['total_success']:<5} ✅ │ FAILED: {stats['total_failure']:<4} ❌ │ RATE: {rate_pct:<6} │ SPEED: {speed_hr:<8}   ║")
     out.append(f"║  ACTIVE WORKERS: {active_workers}/{total_workers:<2} 🚀 │ LIMITS: {stats['total_rate_limit']:<3} ⚠️ │ POLICY: Instant Auto-Rotation  ║")
     out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append("║  ACCOUNTS STATUS (Distributed across 4 referral accounts):                    ║")
+    out.append("║  ACCOUNTS STATUS (5 Workers per referral link):                              ║")
 
     for idx, acc in enumerate(ACCOUNTS):
         acc_st = stats["accounts"].get(acc["email"], {"success": 0, "failure": 0, "rate_limit": 0})
         acc_runs = acc_st["success"] + acc_st["failure"]
         acc_rate = f"{(acc_st['success'] / max(acc_runs, 1) * 100):.0f}%" if acc_runs > 0 else "0%"
-        assigned_w = 3 if idx in (0, 1) else 2
+        assigned_w = total_workers // len(ACCOUNTS)
         out.append(
             f"║   [{idx+1}] {acc['email']:<15} : {acc_st['success']:<4} ✅ | {acc_st['failure']:<3} ❌ | {acc_rate:<4} rate | {assigned_w} workers       ║"
         )

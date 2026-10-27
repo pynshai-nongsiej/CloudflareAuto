@@ -108,8 +108,8 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
 } elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute") {
     $RoundRobin = $true
-    $TargetEmail = "All 4 Accounts (10 workers total)"
-    $TargetUrl = "Distributed across 4 accounts"
+    $TargetEmail = "dd & jn (5 workers each = 10 total)"
+    $TargetUrl = "Distributed across dd & jn"
     if ($NumWindows -le 0) { $NumWindows = 10 }
 } elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
     $TargetEmail = "Custom URL"
@@ -119,13 +119,13 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     $isInteractive = $Host.UI.RawUI -ne $null -and [Environment]::UserInteractive
     if ($isInteractive) {
         Write-Host "================================================================" -ForegroundColor Cyan
-        Write-Host "   CloudflareAuto -- Select Target Referral Account" -ForegroundColor Cyan
+        Write-Host "   CloudflareAuto -- Select Target Referral Account (Windows)" -ForegroundColor Cyan
         Write-Host "================================================================" -ForegroundColor Cyan
-        Write-Host "  [1] $Account1Email  ->  $Account1Url  ($WorkersPerLink workers)"
-        Write-Host "  [2] $Account2Email  ->  $Account2Url  ($WorkersPerLink workers)"
-        Write-Host "  [3] $Account3Email  ->  $Account3Url  ($WorkersPerLink workers)"
+        Write-Host "  [1] $Account2Email  ->  $Account2Url  ($WorkersPerLink workers)"
+        Write-Host "  [2] $Account3Email  ->  $Account3Url  ($WorkersPerLink workers)"
+        Write-Host "  [3] $Account1Email  ->  $Account1Url  ($WorkersPerLink workers)"
         Write-Host "  [4] $Account4Email  ->  $Account4Url  ($WorkersPerLink workers)"
-        Write-Host "  [5] All Links       ->  10 workers total distributed across 4 refer links (Default)"
+        Write-Host "  [5] dd & jn         ->  5 workers each (10 total - Default for Windows)"
         Write-Host "  [6] Custom URL      ->  [Enter your own referral link]"
         Write-Host "================================================================" -ForegroundColor Cyan
         $choice = Read-Host "Select option [1-6, Enter for default 5]"
@@ -133,18 +133,18 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
 
         switch ($choice.Trim().ToLower()) {
             "1" {
-                $TargetUrl = $Account1Url
-                $TargetEmail = $Account1Email
-                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
-            }
-            "2" {
                 $TargetUrl = $Account2Url
                 $TargetEmail = $Account2Email
                 if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
-            "3" {
+            "2" {
                 $TargetUrl = $Account3Url
                 $TargetEmail = $Account3Email
+                if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
+            }
+            "3" {
+                $TargetUrl = $Account1Url
+                $TargetEmail = $Account1Email
                 if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
             }
             "4" {
@@ -154,15 +154,15 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
             }
             "5" {
                 $RoundRobin = $true
-                $TargetEmail = "All 4 Accounts (10 workers total)"
-                $TargetUrl = "Distributed across 4 accounts"
+                $TargetEmail = "dd & jn (5 workers each = 10 total)"
+                $TargetUrl = "Distributed across dd & jn"
                 if ($NumWindows -le 0) { $NumWindows = 10 }
             }
             "6" {
                 $customInput = Read-Host "Enter custom referral URL"
                 if ([string]::IsNullOrWhiteSpace($customInput)) {
-                    $TargetUrl = $Account1Url
-                    $TargetEmail = $Account1Email
+                    $TargetUrl = $Account2Url
+                    $TargetEmail = $Account2Email
                 } else {
                     $TargetUrl = $customInput.Trim()
                     $TargetEmail = "Custom Account"
@@ -171,15 +171,15 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
             }
             default {
                 $RoundRobin = $true
-                $TargetEmail = "All 4 Accounts (10 workers total)"
-                $TargetUrl = "Distributed across 4 accounts"
+                $TargetEmail = "dd & jn (5 workers each = 10 total)"
+                $TargetUrl = "Distributed across dd & jn"
                 if ($NumWindows -le 0) { $NumWindows = 10 }
             }
         }
     } else {
         $RoundRobin = $true
-        $TargetEmail = "All 4 Accounts (10 workers total)"
-        $TargetUrl = "Distributed across 4 accounts"
+        $TargetEmail = "dd & jn (5 workers each = 10 total)"
+        $TargetUrl = "Distributed across dd & jn"
         if ($NumWindows -le 0) { $NumWindows = 10 }
     }
 }
@@ -307,9 +307,9 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
 
     if ($RoundRobin) {
-        $accounts = @($Account1Url, $Account2Url, $Account3Url, $Account4Url)
-        $emails = @($Account1Email, $Account2Email, $Account3Email, $Account4Email)
-        $idx = $i % $accounts.Length
+        $accounts = @($Account2Url, $Account3Url)
+        $emails = @($Account2Email, $Account3Email)
+        $idx = [math]::Floor($i / 5) % $accounts.Length
         $wUrl = $accounts[$idx]
         $wEmail = $emails[$idx]
     } else {

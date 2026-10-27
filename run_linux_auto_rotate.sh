@@ -2,7 +2,7 @@
 # ==============================================================================
 #  run_linux_auto_rotate.sh -- 24/7 Auto-Rotating Multi-Worker Runner for Linux
 # ==============================================================================
-#  Launches 10 workers distributed across the 4 referral accounts.
+#  Launches 10 workers distributed across dd and jn (5 workers each).
 #  Browser runs headlessly with extended 120s OTP timeout.
 #  Terminals run headed (visible) or tmux/bg on headless servers.
 #  When a rate-limit is encountered or batch finishes:
