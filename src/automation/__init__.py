@@ -1,6 +1,13 @@
 from .tempmail_client import TempMailClient
-from .playwright_automation import register_and_verify, RateLimitError, cleanup_all_screenshots
-from .browser_use_automation import create_browser_use_agent, get_default_llm
+try:
+    from .playwright_automation import register_and_verify, RateLimitError, cleanup_all_screenshots
+except ImportError:
+    pass
+
+try:
+    from .browser_use_automation import create_browser_use_agent, get_default_llm
+except ImportError:
+    pass
 from .fingerprint import (
     BrowserFingerprint,
     generate_fingerprint,
