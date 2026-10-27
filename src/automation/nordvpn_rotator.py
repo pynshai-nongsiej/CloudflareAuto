@@ -161,10 +161,46 @@ def get_current_ip_info() -> dict:
         return {"ip": "unknown", "city": "unknown", "country": "unknown"}
 
 
+def check_permissions_and_binary() -> bool:
+    """Verify OpenVPN binary exists and proper privileges are present."""
+    bin_path = shutil.which(OPENVPN_BIN) or (OPENVPN_BIN if Path(OPENVPN_BIN).exists() else None)
+    if not bin_path:
+        print(f"\n❌ ERROR: OpenVPN executable not found ('{OPENVPN_BIN}')!")
+        if SYSTEM == "Windows":
+            print("   👉 Install OpenVPN on Windows by running PowerShell as Administrator:")
+            print("      winget install OpenVPNTechnologies.OpenVPN")
+            print("      Or download installer from: https://openvpn.net/community-downloads/")
+        else:
+            print("   👉 Install OpenVPN on Linux by running:")
+            print("      sudo apt-get update && sudo apt-get install -y openvpn")
+        return False
+
+    if SYSTEM == "Windows":
+        try:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                print("\n⚠️  WARNING: Not running as Administrator!")
+                print("   OpenVPN on Windows CANNOT configure network routing without Administrator privileges.")
+                print("   👉 Right-click PowerShell or Command Prompt and select 'Run as Administrator'.\n")
+        except Exception:
+            pass
+    else:
+        is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        if not is_root:
+            test = subprocess.run(["sudo", "-n", OPENVPN_BIN, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            if test.returncode != 0:
+                print("\n⚠️  WARNING: Sudo password required for OpenVPN!")
+                print("   👉 To allow OpenVPN to rotate automatically without password prompts, run:")
+                print(f"      echo \"$USER ALL=(ALL) NOPASSWD: {bin_path}, /usr/bin/pkill\" | sudo tee /etc/sudoers.d/openvpn")
+                print("      sudo chmod 0440 /etc/sudoers.d/openvpn\n")
+    return True
+
+
 def connect_to_server(ovpn_path: Path) -> bool:
     """Start OpenVPN daemon with the specified config."""
     ensure_auth_file()
     disconnect_vpn()
+    check_permissions_and_binary()
 
     # Reset log file with world read/write permissions
     try:
@@ -201,9 +237,9 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--writepid", PID_FILE,
             "--log", LOG_FILE,
         ])
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
-            print(f"[!] OpenVPN launch exited with return code {res.returncode}")
+            print(f"[!] OpenVPN launch exited with return code {res.returncode}: {res.stderr.strip()}")
             return False
 
     # Wait up to 18 seconds for connection initialization
@@ -222,6 +258,16 @@ def connect_to_server(ovpn_path: Path) -> bool:
                     return False
             except Exception as e:
                 print(f"[!] Warning reading log: {e}")
+
+    if not connected and Path(LOG_FILE).exists():
+        try:
+            lines = Path(LOG_FILE).read_text(errors="ignore").strip().splitlines()
+            if lines:
+                print(f"\n--- OpenVPN Log Details ({LOG_FILE}) ---")
+                print("\n".join(lines[-8:]))
+                print("----------------------------------------\n")
+        except Exception:
+            pass
 
     return connected
 
