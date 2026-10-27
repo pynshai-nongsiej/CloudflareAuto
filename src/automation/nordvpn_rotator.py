@@ -205,6 +205,31 @@ def check_permissions_and_binary() -> bool:
     return True
 
 
+def is_tunnel_up() -> bool:
+    """Check if tun/utun VPN interface is active with an assigned IP address."""
+    if SYSTEM == "Windows":
+        return False
+    try:
+        res = subprocess.run(["ip", "-brief", "addr", "show"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                if line.startswith("tun") and "UP" in line:
+                    parts = line.split()
+                    if len(parts) >= 3 and "/" in parts[2]:
+                        return True
+    except Exception:
+        pass
+    try:
+        res = subprocess.run(["ifconfig"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if res.returncode == 0:
+            for block in res.stdout.split("\n\n"):
+                if ("utun" in block or "tun" in block) and "inet " in block:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def connect_to_server(ovpn_path: Path) -> bool:
     """Start OpenVPN daemon with the specified config."""
     ensure_auth_file()
@@ -241,10 +266,10 @@ def connect_to_server(ovpn_path: Path) -> bool:
             OPENVPN_BIN,
             "--config", str(ovpn_path),
             "--auth-user-pass", str(AUTH_FILE),
-            "--daemon",
-            "--writepid", PID_FILE,
             "--log", LOG_FILE,
+            "--writepid", PID_FILE,
             "--verb", "3",
+            "--daemon",
         ])
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
@@ -256,6 +281,9 @@ def connect_to_server(ovpn_path: Path) -> bool:
     connected = False
     while time.time() - start_wait < 18:
         time.sleep(1.5)
+        if is_tunnel_up():
+            connected = True
+            break
         log_text = read_log_file()
         if "Initialization Sequence Completed" in log_text:
             connected = True
