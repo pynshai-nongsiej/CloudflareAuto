@@ -22,9 +22,15 @@ SYSTEM = platform.system()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 AUTH_FILE = PROJECT_ROOT / ".nord_auth.txt"
 OVPN_CACHE_DIR = PROJECT_ROOT / "ovpn_configs"
-TEMP_DIR = Path(tempfile.gettempdir())
-PID_FILE = str(TEMP_DIR / "nord_openvpn.pid")
-LOG_FILE = str(TEMP_DIR / "nord_openvpn.log")
+
+if SYSTEM == "Windows":
+    TEMP_DIR = Path(tempfile.gettempdir())
+    PID_FILE = str(TEMP_DIR / "nord_openvpn.pid")
+    LOG_FILE = str(TEMP_DIR / "nord_openvpn.log")
+else:
+    PID_FILE = "/tmp/nord_openvpn.pid"
+    LOG_FILE = "/tmp/nord_openvpn.log"
+
 
 
 def get_openvpn_bin() -> str:
@@ -160,10 +166,11 @@ def connect_to_server(ovpn_path: Path) -> bool:
     ensure_auth_file()
     disconnect_vpn()
 
-    # Clear previous log file
+    # Reset log file with world read/write permissions
     try:
-        if Path(LOG_FILE).exists():
-            Path(LOG_FILE).unlink()
+        with open(LOG_FILE, "w") as f:
+            f.write("")
+        os.chmod(LOG_FILE, 0o666)
     except Exception:
         pass
 
@@ -199,10 +206,10 @@ def connect_to_server(ovpn_path: Path) -> bool:
             print(f"[!] OpenVPN launch exited with return code {res.returncode}")
             return False
 
-    # Wait up to 15 seconds for connection initialization
+    # Wait up to 18 seconds for connection initialization
     start_wait = time.time()
     connected = False
-    while time.time() - start_wait < 15:
+    while time.time() - start_wait < 18:
         time.sleep(1.5)
         if Path(LOG_FILE).exists():
             try:
@@ -213,8 +220,8 @@ def connect_to_server(ovpn_path: Path) -> bool:
                 if "AUTH_FAILED" in log_text:
                     print("[!] OpenVPN Authentication Failed! Check credentials in .nord_auth.txt")
                     return False
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[!] Warning reading log: {e}")
 
     return connected
 
@@ -262,9 +269,17 @@ def rotate_vpn(target_country_name: str = None) -> dict:
 
     success = connect_to_server(ovpn_path)
     if not success:
-        print("[!] Connection did not complete within timeout. Retrying once...")
+        print("[!] Connection did not complete within timeout. Retrying with a different country/server...")
         disconnect_vpn()
-        success = connect_to_server(ovpn_path)
+        fallback_countries = [c for c in countries if c["id"] != chosen_country["id"]]
+        if fallback_countries:
+            fallback = random.choice(fallback_countries)
+            server2 = get_best_server_for_country(fallback["id"])
+            if server2:
+                ovpn_path2 = download_ovpn_config(server2["hostname"])
+                if ovpn_path2:
+                    print(f"  Retrying connection with: {server2['name']} ({server2['hostname']})...")
+                    success = connect_to_server(ovpn_path2)
 
     if not success:
         raise RuntimeError("OpenVPN connection initialization failed.")
