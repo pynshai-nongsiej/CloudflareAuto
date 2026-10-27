@@ -24,10 +24,15 @@ param(
     [int]$DelayMin = 0,
     [int]$DelayMax = 0,
     [string]$Account = "",
-    [switch]$Headless,
+    [switch]$Headless = $true,
+    [switch]$Headed,
     [switch]$BrowserHeaded,
     [string]$ExtraArgs = ""
 )
+
+if ($Headed) {
+    $Headless = $false
+}
 
 # Ensure UTF-8 output encoding in PowerShell console
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -57,13 +62,14 @@ if ($Action -eq "stop" -or $args -contains "stop") {
 
     # Terminate worker cmd processes by window title
     try {
-        & taskkill.exe /F /FI "WINDOWTITLE eq Worker-*" 2>$null | Out-Null
+        & taskkill.exe /F /T /FI "WINDOWTITLE eq Worker-*" 2>$null | Out-Null
     } catch {}
 
-    # Terminate python.exe processes executing main.py
+    # Terminate python.exe processes executing main.py and cmd.exe running worker batch scripts
     try {
-        Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -like "*main.py*" } |
+        Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "*Worker-*" } | Stop-Process -Force -ErrorAction SilentlyContinue
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Name -eq "cmd.exe" -and ($_.CommandLine -like "*cloudflare_auto_workers*" -or $_.CommandLine -like "*worker_*.bat*")) -or ($_.Name -eq "python.exe" -and $_.CommandLine -like "*main.py*") } |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     } catch {}
 
@@ -338,7 +344,7 @@ echo.
 "$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --worker-id $label --timeout 120 $extraFlags
 if %ERRORLEVEL% equ 42 (
     echo [$label] Rate limit exit triggered (code 42) -- finishing batch for VPN rotation.
-    exit /b 42
+    exit 42
 )
 echo.
 echo [$label] Process exited -- restarting in 5s...
@@ -346,7 +352,7 @@ timeout /t 5 /nobreak >nul
 goto loop_forever
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII
-    Write-Host "  [$label]  grid=($col,$row)  account=$wEmail  delay=${delay}s" -ForegroundColor Gray
+    Write-Host "  [$label]  grid=($col,$row)  account=$wEmail" -ForegroundColor Gray
 }
 
 Write-Host ""
@@ -372,7 +378,7 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
         Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$workerScript`"" -WindowStyle Hidden
     } else {
         # Launch worker in a separate console window
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$workerScript`""
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$workerScript`""
 
         # Reposition window into its exact grid slot
         Start-Sleep -Milliseconds 350

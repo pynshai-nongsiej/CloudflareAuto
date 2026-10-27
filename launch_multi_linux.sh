@@ -304,6 +304,18 @@ if [[ "$HEADLESS" == "true" ]]; then
         fi
     fi
 elif [[ "$SELECTED_METHOD" == "auto" ]]; then
+    # Auto-detect local display if unset (e.g. running via SSH on a desktop machine)
+    if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+        if [[ -S /tmp/.X11-unix/X0 ]]; then
+            export DISPLAY=":0"
+        elif [[ -S /tmp/.X11-unix/X1 ]]; then
+            export DISPLAY=":1"
+        fi
+    fi
+    if [[ -z "${XAUTHORITY:-}" && -f "$HOME/.Xauthority" ]]; then
+        export XAUTHORITY="$HOME/.Xauthority"
+    fi
+
     HAS_DISPLAY=false
     if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
         HAS_DISPLAY=true
@@ -445,7 +457,7 @@ done
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"
-    echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}  delay=${DELAY}s"
+    echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}"
 done
 
 echo ""

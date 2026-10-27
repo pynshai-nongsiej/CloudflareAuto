@@ -30,6 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.automation.nordvpn_rotator import rotate_vpn, disconnect_vpn, get_current_ip_info
+from src.automation.rich_dashboard import RichDashboard
 
 TRIGGER_FLAG = Path(os.environ.get("TEMP", r"C:\Temp")) / "cloudflare_rate_limit_triggered.flag"
 EVENTS_FILE = PROJECT_ROOT / "logs" / "events.jsonl"
@@ -47,6 +48,11 @@ ACCOUNTS = [
         "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
     },
 ]
+
+dashboard = RichDashboard(
+    platform_name="Windows",
+    target_subtitle="Target Accounts: dd & jn (3 workers each)",
+)
 
 
 def parse_args():
@@ -80,8 +86,14 @@ def parse_args():
     parser.add_argument(
         "--headless",
         action="store_true",
-        default=False,
-        help="Run CMD terminal windows hidden in background (default: False, headed)",
+        default=True,
+        help="Run CMD terminal windows hidden in background (default: True, headless)",
+    )
+    parser.add_argument(
+        "--headed",
+        dest="headless",
+        action="store_false",
+        help="Run CMD terminal windows visibly tiled across desktop",
     )
     parser.add_argument(
         "--browser-headed",
@@ -113,14 +125,15 @@ def parse_args():
 def close_all_terminals():
     """Kill all main.py worker processes and close their CMD windows cleanly."""
     try:
-        subprocess.run(["taskkill", "/F", "/FI", "WINDOWTITLE eq Worker-*"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["taskkill", "/F", "/T", "/FI", "WINDOWTITLE eq Worker-*"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
 
     try:
         ps_cmd = (
-            "Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" -ErrorAction SilentlyContinue | "
-            "Where-Object { $_.CommandLine -like '*main.py*' } | "
+            "Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*Worker-*' } | Stop-Process -Force -ErrorAction SilentlyContinue; "
+            "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
+            "Where-Object { ($_.Name -eq 'cmd.exe' -and ($_.CommandLine -like '*cloudflare_auto_workers*' -or $_.CommandLine -like '*worker_*.bat*')) -or ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*main.py*') } | "
             "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
         )
         subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -232,80 +245,20 @@ def read_events_stats() -> tuple[dict, list]:
 
 
 def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers: int, status_msg: str = "Active"):
-    """Render terminal dashboard."""
+    """Render terminal dashboard cleanly via Rich."""
     stats, recent_events = read_events_stats()
     active_workers = count_active_workers()
-
-    elapsed = int(time.time() - start_time)
-    hours = elapsed // 3600
-    mins = (elapsed % 3600) // 60
-    secs = elapsed % 60
-    uptime_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
-
-    ip = ip_info.get("ip", "Checking...")
-    country = ip_info.get("country", "??")
-    city = ip_info.get("city", "N/A")
-    org = ip_info.get("org", "NordVPN")[:32]
-
-    # ANSI terminal clear and home
-    sys.stdout.write("\033[H\033[J")
-
-    total_runs = stats['total_success'] + stats['total_failure']
-    rate_pct = f"{(stats['total_success'] / max(total_runs, 1) * 100):.1f}%" if total_runs > 0 else "0.0%"
-    speed_hr = f"{(stats['total_success'] / max(elapsed, 1) * 3600):.1f}/h"
-
-    out = []
-    out.append("╔═══════════════════════════════════════════════════════════════════════════════╗")
-    out.append("║     🛡️  CLOUDFLARE AUTO -- 6-WORKER DASHBOARD & NORDVPN ROTATOR (Windows)       ║")
-    out.append("║                       Target Accounts: dd & jn (3 workers each)              ║")
-    out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append(f"║  Cycle     : #{cycle:<4} | Uptime: {uptime_str:<8} | Status: {status_msg:<27}║")
-    out.append(f"║  Public IP : {ip:<15} | Location: {city}, {country:<4} | ISP: {org:<22}║")
-    out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append(f"║  SUCCESS: {stats['total_success']:<5} ✅ │ FAILED: {stats['total_failure']:<4} ❌ │ RATE: {rate_pct:<6} │ SPEED: {speed_hr:<8}   ║")
-    out.append(f"║  ACTIVE WORKERS: {active_workers}/{total_workers:<2} 🚀 │ LIMITS: {stats['total_rate_limit']:<3} ⚠️ │ POLICY: Instant Auto-Rotation  ║")
-    out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append("║  ACCOUNTS STATUS (3 Workers per referral link):                              ║")
-
-    for idx, acc in enumerate(ACCOUNTS):
-        acc_st = stats["accounts"].get(acc["email"], {"success": 0, "failure": 0, "rate_limit": 0})
-        acc_runs = acc_st["success"] + acc_st["failure"]
-        acc_rate = f"{(acc_st['success'] / max(acc_runs, 1) * 100):.0f}%" if acc_runs > 0 else "0%"
-        assigned_w = total_workers // len(ACCOUNTS)
-        out.append(
-            f"║   [{idx+1}] {acc['email']:<15} : {acc_st['success']:<4} ✅ | {acc_st['failure']:<3} ❌ | {acc_rate:<4} rate | {assigned_w} workers       ║"
-        )
-
-    out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append("║  LIVE EVENTS FEED (Most Recent):                                              ║")
-
-    if not recent_events:
-        out.append("║   (Waiting for initial registration events...)                                ║")
-    else:
-        for ev in reversed(recent_events):
-            ts = datetime.fromtimestamp(ev.get("timestamp", time.time())).strftime("%H:%M:%S")
-            w_id = ev.get("worker_id", "Worker-??")
-            ev_t = ev.get("event")
-            acc_name = ev.get("account", "").split("@")[0]
-
-            if ev_t == "success":
-                icon = "✅"
-                detail = f"Verified email: {ev.get('email', 'N/A')[:22]}"
-            elif ev_t == "rate_limit":
-                icon = "⚠️"
-                detail = f"Rate limited -> rotation triggered"
-            else:
-                icon = "❌"
-                detail = f"Failed: {ev.get('error', 'Error')[:28]}"
-
-            line_str = f"║   • {ts} [{w_id}] {acc_name:<5} {icon} {detail:<42}║"
-            out.append(line_str)
-
-    out.append("╚═══════════════════════════════════════════════════════════════════════════════╝")
-    out.append("  [Tip] Workers running in visible CMD windows. Press Ctrl+C to stop cleanly.")
-
-    sys.stdout.write("\n".join(out) + "\n")
-    sys.stdout.flush()
+    dashboard.render(
+        cycle=cycle,
+        start_time=start_time,
+        ip_info=ip_info,
+        total_workers=total_workers,
+        active_workers=active_workers,
+        stats=stats,
+        recent_events=recent_events,
+        accounts=ACCOUNTS,
+        status_msg=status_msg,
+    )
 
 
 def main():
@@ -316,6 +269,7 @@ def main():
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     clear_trigger_flag()
+    dashboard.start()
 
     ip_info = {"ip": "Connecting...", "country": "??", "city": "...", "org": "NordVPN"}
 
@@ -401,6 +355,7 @@ def main():
         sys.stdout.write("\n\n  🛑 SUPERVISOR STOPPED BY USER (Ctrl+C)\n")
         sys.stdout.flush()
     finally:
+        dashboard.stop()
         sys.stdout.write("  [*] Stopping all workers and closing CMD windows...\n")
         close_all_terminals()
         clear_trigger_flag()
