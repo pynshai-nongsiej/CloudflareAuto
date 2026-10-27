@@ -271,9 +271,9 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--verb", "3",
             "--daemon",
         ])
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if res.returncode != 0:
-            print(f"[!] OpenVPN launch exited with return code {res.returncode}: {res.stderr.strip()}")
+            print(f"[!] OpenVPN launch exited with return code {res.returncode}")
             return False
 
     # Wait up to 18 seconds for connection initialization
