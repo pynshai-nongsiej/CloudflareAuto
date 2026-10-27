@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    run_windows_auto_rotate.ps1 -- 10-Worker Auto-Rotator & Dashboard for Windows
+    run_windows_auto_rotate.ps1 -- 6-Worker Auto-Rotator & Dashboard for Windows
 #>
 [CmdletBinding()]
 param(
-    [int]$NumWorkers = 10,
+    [int]$NumWorkers = 6,
     [string]$Mode = "direct",
     [int]$DelayMin = 0,
     [int]$DelayMax = 0,

@@ -24,7 +24,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKERS_PER_LINK="${WORKERS_PER_LINK:-2}"
+WORKERS_PER_LINK="${WORKERS_PER_LINK:-3}"
 NUM_WINDOWS="${NUM_WINDOWS:-}"
 MODE="${MODE:-direct}"
 DELAY_MIN="${DELAY_MIN:-0}"
@@ -131,9 +131,9 @@ elif [[ "$ARG1" == "4" || "$ARG1" == "dai" || "$ARG1" == "dai@gmail.com" ]]; the
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$ARG1" == "5" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
     ROUND_ROBIN=true
-    TARGET_EMAIL="dd & jn (5 workers each = 10 total)"
+    TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
     TARGET_URL="Distributed across dd & jn"
-    NUM_WINDOWS="${NUM_WINDOWS:-10}"
+    NUM_WINDOWS="${NUM_WINDOWS:-6}"
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
@@ -145,7 +145,7 @@ elif [ -t 0 ]; then
     echo "  [2] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
     echo "  [3] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
     echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [5] dd & jn        ->  5 workers each (10 total - Default for Linux)"
+    echo "  [5] dd & jn        ->  3 workers each (6 total - Default for Linux)"
     echo "  [6] Custom URL     ->  [Enter your own referral link]"
     echo "================================================================"
     read -r -p "Select option [1-6, Enter for default 5]: " USER_CHOICE
@@ -174,9 +174,9 @@ elif [ -t 0 ]; then
             ;;
         5|all|distribute)
             ROUND_ROBIN=true
-            TARGET_EMAIL="dd & jn (5 workers each = 10 total)"
+            TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
             TARGET_URL="Distributed across dd & jn"
-            NUM_WINDOWS="${NUM_WINDOWS:-10}"
+            NUM_WINDOWS="${NUM_WINDOWS:-6}"
             ;;
         6|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
@@ -186,17 +186,17 @@ elif [ -t 0 ]; then
             ;;
         *)
             ROUND_ROBIN=true
-            TARGET_EMAIL="dd & jn (5 workers each = 10 total)"
+            TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
             TARGET_URL="Distributed across dd & jn"
-            NUM_WINDOWS="${NUM_WINDOWS:-10}"
+            NUM_WINDOWS="${NUM_WINDOWS:-6}"
             ;;
     esac
 else
-    # Non-interactive fallback default: dd & jn distributed (10 workers)
+    # Non-interactive fallback default: dd & jn distributed (6 workers)
     ROUND_ROBIN=true
-    TARGET_EMAIL="dd & jn (5 workers each = 10 total)"
+    TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
     TARGET_URL="Distributed across dd & jn"
-    NUM_WINDOWS="${NUM_WINDOWS:-10}"
+    NUM_WINDOWS="${NUM_WINDOWS:-6}"
 fi
 
 # ── Clean up old worker directory and screenshots ────────────
@@ -407,7 +407,7 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     if [[ "$ROUND_ROBIN" == "true" ]]; then
         ACCOUNTS=("$ACCOUNT_2_URL" "$ACCOUNT_3_URL")
         EMAILS=("$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL")
-        IDX=$(( (i / 5) % ${#ACCOUNTS[@]} ))
+        IDX=$(( (i / 3) % ${#ACCOUNTS[@]} ))
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
     else

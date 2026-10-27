@@ -51,13 +51,13 @@ ACCOUNTS = [
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Windows 10-Worker Runner with Live Dashboard & NordVPN Auto-Rotator"
+        description="Windows 6-Worker Runner with Live Dashboard & NordVPN Auto-Rotator"
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=10,
-        help="Total number of workers distributed across accounts (default: 10)",
+        default=6,
+        help="Total number of workers distributed across accounts (default: 6)",
     )
     parser.add_argument(
         "--mode",
@@ -256,8 +256,8 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
 
     out = []
     out.append("╔═══════════════════════════════════════════════════════════════════════════════╗")
-    out.append("║     🛡️  CLOUDFLARE AUTO -- 10-WORKER DASHBOARD & NORDVPN ROTATOR (Windows)      ║")
-    out.append("║                       Target Accounts: dd & jn (5 workers each)              ║")
+    out.append("║     🛡️  CLOUDFLARE AUTO -- 6-WORKER DASHBOARD & NORDVPN ROTATOR (Windows)       ║")
+    out.append("║                       Target Accounts: dd & jn (3 workers each)              ║")
     out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
     out.append(f"║  Cycle     : #{cycle:<4} | Uptime: {uptime_str:<8} | Status: {status_msg:<27}║")
     out.append(f"║  Public IP : {ip:<15} | Location: {city}, {country:<4} | ISP: {org:<22}║")
@@ -265,7 +265,7 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
     out.append(f"║  SUCCESS: {stats['total_success']:<5} ✅ │ FAILED: {stats['total_failure']:<4} ❌ │ RATE: {rate_pct:<6} │ SPEED: {speed_hr:<8}   ║")
     out.append(f"║  ACTIVE WORKERS: {active_workers}/{total_workers:<2} 🚀 │ LIMITS: {stats['total_rate_limit']:<3} ⚠️ │ POLICY: Instant Auto-Rotation  ║")
     out.append("╠═══════════════════════════════════════════════════════════════════════════════╣")
-    out.append("║  ACCOUNTS STATUS (5 Workers per referral link):                              ║")
+    out.append("║  ACCOUNTS STATUS (3 Workers per referral link):                              ║")
 
     for idx, acc in enumerate(ACCOUNTS):
         acc_st = stats["accounts"].get(acc["email"], {"success": 0, "failure": 0, "rate_limit": 0})
@@ -339,7 +339,7 @@ def main():
                 except Exception:
                     ip_info = get_current_ip_info()
 
-            # 3. Launch 10 workers in visible CMD windows
+            # 3. Launch workers in visible CMD windows
             mode_desc = "Headed CMD Windows" if not args.headless else "Headless Background"
             render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=f"Launching {total_workers} Workers ({mode_desc})...")
             launch_workers(
@@ -351,7 +351,7 @@ def main():
                 headless=args.headless,
             )
 
-            # 4. Dashboard monitoring loop: allows all 10 batch sessions to complete before rotating
+            # 4. Dashboard monitoring loop: allows all batch sessions to complete before rotating
             cycle_start = time.time()
             max_batch_time = 180  # Up to 3 minutes for slow OTP delivery + initial stagger
 
