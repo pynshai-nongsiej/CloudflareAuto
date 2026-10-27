@@ -273,13 +273,7 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
         ACC_GROUP=0
     fi
 
-    # Delay is applied per 2 accounts (not every single worker)
-    # 2s small offset between window opens so Terminal.app handles sizing cleanly
-    BASE_DELAY=$(( ACC_GROUP * 30 ))
-    OFFSET=$(( (i % (2 * WORKERS_PER_LINK)) * 2 ))
-    DELAY=$(( BASE_DELAY + OFFSET ))
-
-    echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}  delay=${DELAY}s"
+    echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}"
 
     # ── Write a standalone bash script for this worker ───────
     cat > "$WORKER_SCRIPT" <<WORKER_EOF
@@ -296,9 +290,7 @@ echo ""
 echo "============================================="
 echo "  ${LABEL} (${WORKER_ACCOUNT})"
 echo "  Target URL : ${WORKER_URL}"
-echo "  Waiting ${DELAY}s before start"
 echo "============================================="
-sleep ${DELAY}
 
 echo ""
 echo "[${LABEL}] Starting automation loop (mode=${MODE})..."

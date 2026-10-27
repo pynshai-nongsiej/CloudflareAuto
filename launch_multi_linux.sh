@@ -415,11 +415,6 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
         WORKER_ACCOUNT="$TARGET_EMAIL"
     fi
 
-    # Stagger delays evenly across workers
-    BASE_DELAY=$(( (i % 4) * 15 ))
-    OFFSET=$(( (i / 4) * 3 ))
-    DELAY=$(( BASE_DELAY + OFFSET ))
-
     cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 printf '\033]0;${LABEL}\007'
@@ -429,9 +424,7 @@ echo ""
 echo "============================================="
 echo "  ${LABEL} (${WORKER_ACCOUNT})"
 echo "  Target URL : ${WORKER_URL}"
-echo "  Waiting ${DELAY}s before start"
 echo "============================================="
-sleep ${DELAY}
 
 echo ""
 echo "[${LABEL}] Starting automation loop (mode=${MODE})..."

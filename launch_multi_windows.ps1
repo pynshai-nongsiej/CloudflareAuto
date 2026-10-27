@@ -317,11 +317,6 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
         $wEmail = $TargetEmail
     }
 
-    # Stagger delays evenly across workers
-    $baseDelay = ($i % 4) * 15
-    $offset = [math]::Floor($i / 4) * 3
-    $delay = $baseDelay + $offset
-
     $scriptContent = @"
 @echo off
 title $label
@@ -332,9 +327,7 @@ echo.
 echo =============================================
 echo   $label ($wEmail)
 echo   Target URL : $wUrl
-echo   Waiting ${delay}s before start
 echo =============================================
-timeout /t $delay /nobreak >nul
 
 echo.
 echo [$label] Starting automation loop (mode=$Mode)...

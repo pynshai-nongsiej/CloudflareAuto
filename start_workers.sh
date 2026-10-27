@@ -56,11 +56,9 @@ trap cleanup SIGINT SIGTERM SIGHUP
 for (( i=1; i<=NUM_WORKERS; i++ )); do
     NUM=$(printf '%02d' "$i")
     LOG_FILE="$PROJECT_DIR/logs/worker_${NUM}.log"
-    START_DELAY=$(( (i - 1) * 35 + 5 ))
 
     (
-        echo "=== [Worker-${NUM}] Starting (Initial delay: ${START_DELAY}s) at $(date) ===" > "$LOG_FILE"
-        sleep "$START_DELAY"
+        echo "=== [Worker-${NUM}] Starting at $(date) ===" > "$LOG_FILE"
         while true; do
             echo "[Worker-${NUM}] $(date '+%Y-%m-%d %H:%M:%S') - Launching registration cycle..." >> "$LOG_FILE"
             "$PYTHON" -u main.py --mode direct --loop --target-url "$TARGET_URL" --delay-min "$DELAY_MIN" --delay-max "$DELAY_MAX" >> "$LOG_FILE" 2>&1 || true
@@ -69,7 +67,7 @@ for (( i=1; i<=NUM_WORKERS; i++ )); do
         done
     ) &
     PIDS+=($!)
-    echo "  [+] Worker-${NUM} started (PID: ${PIDS[-1]}, Delay: ${START_DELAY}s) -> ${LOG_FILE}"
+    echo "  [+] Worker-${NUM} started (PID: ${PIDS[-1]}) -> ${LOG_FILE}"
 done
 
 echo ""
