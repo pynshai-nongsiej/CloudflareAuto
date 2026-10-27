@@ -105,22 +105,102 @@ def get_all_available_countries() -> list[dict]:
         ]
 
 
+FALLBACK_SERVERS = {
+    81: {"id": 81, "name": "Germany #1001", "hostname": "de1001.nordvpn.com", "station": "185.244.25.10"},
+    228: {"id": 228, "name": "United States #9001", "hostname": "us9001.nordvpn.com", "station": "194.35.233.15"},
+    227: {"id": 227, "name": "United Kingdom #2001", "hostname": "uk2001.nordvpn.com", "station": "185.244.24.10"},
+    195: {"id": 195, "name": "Singapore #671", "hostname": "sg671.nordvpn.com", "station": "187.15.103.106"},
+    108: {"id": 108, "name": "Japan #1301", "hostname": "jp1301.nordvpn.com", "station": "187.15.136.165"},
+    74: {"id": 74, "name": "France #1276", "hostname": "fr1276.nordvpn.com", "station": "185.244.26.10"},
+    208: {"id": 208, "name": "Switzerland #511", "hostname": "ch511.nordvpn.com", "station": "185.244.27.10"},
+    153: {"id": 153, "name": "Netherlands #1001", "hostname": "nl1001.nordvpn.com", "station": "185.244.28.10"},
+    38: {"id": 38, "name": "Canada #1501", "hostname": "ca1501.nordvpn.com", "station": "185.244.29.10"},
+    13: {"id": 13, "name": "Australia #1009", "hostname": "au1009.nordvpn.com", "station": "185.244.30.10"},
+    200: {"id": 200, "name": "Spain #201", "hostname": "es201.nordvpn.com", "station": "185.244.31.10"},
+    106: {"id": 106, "name": "Italy #418", "hostname": "it418.nordvpn.com", "station": "187.15.83.81"},
+}
+
+
+def ensure_dns_healthy():
+    """Verify DNS resolution is working. If failing, heal system DNS cache and nameservers."""
+    import socket
+    for test_host in ["api.nordvpn.com", "cloudflare.com", "google.com"]:
+        try:
+            socket.gethostbyname(test_host)
+            return True
+        except Exception:
+            pass
+
+    print("[*] Notice: DNS resolution failing, auto-healing system DNS...")
+    try:
+        if SYSTEM == "Darwin":
+            subprocess.run(["dscacheutil", "-flushcache"], stderr=subprocess.DEVNULL)
+            subprocess.run(["killall", "-HUP", "mDNSResponder"], stderr=subprocess.DEVNULL)
+        elif SYSTEM == "Linux":
+            dns_entries = "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 103.86.96.100\n"
+            is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+            cmd = f"echo '{dns_entries}' > /etc/resolv.conf"
+            if is_root:
+                subprocess.run(["sh", "-c", cmd], stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(["sudo", "-n", "sh", "-c", cmd], stderr=subprocess.DEVNULL)
+            subprocess.run(["resolvectl", "flush-caches"], stderr=subprocess.DEVNULL)
+        elif SYSTEM == "Windows":
+            subprocess.run(["ipconfig", "/flushdns"], stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    time.sleep(1.0)
+    return False
+
+
+def find_cached_ovpn_for_country(country_id: int = 0) -> dict | None:
+    """Find any locally cached .ovpn config for a country or from the general pool."""
+    if not OVPN_CACHE_DIR.exists():
+        return None
+    country_codes = {
+        81: "de", 228: "us", 227: "uk", 195: "sg", 108: "jp", 74: "fr",
+        208: "ch", 153: "nl", 38: "ca", 13: "au", 206: "se", 200: "es", 106: "it"
+    }
+    prefix = country_codes.get(country_id, "")
+    if prefix:
+        matches = [f for f in OVPN_CACHE_DIR.glob(f"{prefix}*.ovpn") if f.stat().st_size > 500]
+        if matches:
+            chosen = random.choice(matches)
+            hostname = chosen.name.split(".udp.")[0].split(".tcp.")[0]
+            return {"hostname": hostname, "name": f"Cached {prefix.upper()} ({hostname})", "cached_path": chosen}
+
+    all_cached = [f for f in OVPN_CACHE_DIR.glob("*.ovpn") if f.stat().st_size > 500]
+    if all_cached:
+        chosen = random.choice(all_cached)
+        hostname = chosen.name.split(".udp.")[0].split(".tcp.")[0]
+        return {"hostname": hostname, "name": f"Cached Server ({hostname})", "cached_path": chosen}
+    return None
+
+
 def get_best_server_for_country(country_id: int) -> dict | None:
-    """Find the optimal recommended server for a specific country."""
+    """Find the optimal recommended server for a specific country with automatic fallback."""
     url = f"https://api.nordvpn.com/v1/servers/recommendations?filters[country_id]={country_id}&limit=1"
     req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             servers = json.loads(resp.read().decode())
             if servers:
                 return servers[0]
     except Exception as e:
-        print(f"[!] Error fetching recommended server for country {country_id}: {e}")
+        print(f"[!] Warning: API query failed ({e}), checking fallback/cached configs...")
+
+    if country_id in FALLBACK_SERVERS:
+        return FALLBACK_SERVERS[country_id]
+
+    cached = find_cached_ovpn_for_country(country_id)
+    if cached:
+        return cached
+
     return None
 
 
 def download_ovpn_config(hostname: str, proto: str = "udp") -> Path | None:
-    """Download .ovpn configuration file for a given server hostname."""
+    """Download .ovpn configuration file for a given server hostname, or use cached fallback."""
     OVPN_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     target_file = OVPN_CACHE_DIR / f"{hostname}.{proto}.ovpn"
     if target_file.exists() and target_file.stat().st_size > 500:
@@ -129,16 +209,24 @@ def download_ovpn_config(hostname: str, proto: str = "udp") -> Path | None:
     url = f"https://downloads.nordcdn.com/configs/files/ovpn_{proto}/servers/{hostname}.{proto}.ovpn"
     req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=12) as resp:
             content = resp.read()
             if len(content) > 500:
                 target_file.write_bytes(content)
                 return target_file
     except Exception as e:
         print(f"[!] Failed to download ovpn for {hostname} ({proto}): {e}")
-        # Try fallback to TCP if UDP download fails
         if proto == "udp":
-            return download_ovpn_config(hostname, proto="tcp")
+            tcp_res = download_ovpn_config(hostname, proto="tcp")
+            if tcp_res:
+                return tcp_res
+
+    # If online download fails, use any valid pre-downloaded config from cache
+    all_cached = [f for f in OVPN_CACHE_DIR.glob("*.ovpn") if f.stat().st_size > 500]
+    if all_cached:
+        chosen = random.choice(all_cached)
+        print(f"  [*] Using existing cached OpenVPN config: {chosen.name}")
+        return chosen
     return None
 
 
@@ -330,6 +418,10 @@ def connect_to_server(ovpn_path: Path) -> bool:
 
 def rotate_vpn(target_country_name: str = None) -> dict:
     """Choose an available location, connect via OpenVPN, and return verified IP info."""
+    # Cleanly disconnect previous VPN session first so normal DNS and routing are active
+    disconnect_vpn()
+    ensure_dns_healthy()
+
     countries = get_all_available_countries()
     if not countries:
         raise RuntimeError("No countries available from NordVPN API.")
@@ -359,7 +451,13 @@ def rotate_vpn(target_country_name: str = None) -> dict:
         chosen_country = fallback
 
     if not server:
-        raise RuntimeError("Failed to resolve recommended NordVPN server.")
+        # Fallback to any pre-downloaded config from cache
+        fallback_server = find_cached_ovpn_for_country(0)
+        if fallback_server:
+            server = fallback_server
+            chosen_country = {"id": 0, "name": "Cached Server", "code": "CACHE"}
+        else:
+            raise RuntimeError("Failed to resolve recommended NordVPN server and no cached configs available.")
 
     hostname = server["hostname"]
     station_ip = server.get("station", "N/A")
