@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import json
+import random
 import argparse
 import subprocess
 from datetime import datetime
@@ -94,6 +95,18 @@ def parse_args():
         type=str,
         default=None,
         help="Target country name or ISO code for NordVPN (e.g. 'Germany', 'US')",
+    )
+    parser.add_argument(
+        "--cooldown-min",
+        type=int,
+        default=120,
+        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 120 / 2 min)",
+    )
+    parser.add_argument(
+        "--cooldown-max",
+        type=int,
+        default=180,
+        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 180 / 3 min)",
     )
     return parser.parse_args()
 
@@ -364,20 +377,35 @@ def main():
                         render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
                         continue
                     else:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Rotating...")
-                        time.sleep(2.5)
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Entering cooldown...")
                         break
                 else:
                     if active == 0 and batch_elapsed > 30:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Rotating to fresh location...")
-                        time.sleep(2.5)
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Entering cooldown...")
                         break
                     elif batch_elapsed >= max_batch_time:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Cycling...")
-                        time.sleep(2.5)
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Entering cooldown...")
                         break
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
                     render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+
+            # 5. Cleanly close terminals and apply random 2-3 minute cooldown before rotating
+            close_all_terminals()
+            clear_trigger_flag()
+
+            cooldown_min = min(args.cooldown_min, args.cooldown_max)
+            cooldown_max = max(args.cooldown_min, args.cooldown_max)
+            cooldown_seconds = random.randint(cooldown_min, cooldown_max) if cooldown_max > 0 else 0
+
+            if cooldown_seconds > 0:
+                cooldown_end = time.time() + cooldown_seconds
+                while time.time() < cooldown_end:
+                    remaining = int(cooldown_end - time.time())
+                    mins = remaining // 60
+                    secs = remaining % 60
+                    msg = f"⏳ Cooldown ({mins}m {secs:02d}s remaining) before rotating to next location..."
+                    render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                    time.sleep(1.0)
 
     except KeyboardInterrupt:
         sys.stdout.write("\n\n  🛑 SUPERVISOR STOPPED BY USER (Ctrl+C)\n")

@@ -10,7 +10,9 @@ param(
     [int]$DelayMax = 0,
     [switch]$Headless,
     [switch]$BrowserHeaded,
-    [string]$Country = ""
+    [string]$Country = "",
+    [int]$CooldownMin = 120,
+    [int]$CooldownMax = 180
 )
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -28,7 +30,9 @@ $argsList = @(
     "--num-workers", $NumWorkers,
     "--mode", $Mode,
     "--delay-min", $DelayMin,
-    "--delay-max", $DelayMax
+    "--delay-max", $DelayMax,
+    "--cooldown-min", $CooldownMin,
+    "--cooldown-max", $CooldownMax
 )
 if ($Headless) { $argsList += "--headless" }
 if ($BrowserHeaded) { $argsList += "--browser-headed" }
