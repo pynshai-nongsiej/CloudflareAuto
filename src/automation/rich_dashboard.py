@@ -112,13 +112,20 @@ class RichDashboard:
         else:
             styled_status = Text(status_msg, style="bold bright_white")
 
-        loc_str = f"{city}, {country}" if city != "N/A" else country
+        loc_state = ip_info.get("state") or ip_info.get("region")
+        if city != "N/A" and loc_state and loc_state != "N/A" and loc_state.lower() != city.lower():
+            loc_str = f"{city}, {loc_state}, {country}"
+        elif city != "N/A":
+            loc_str = f"{city}, {country}"
+        else:
+            loc_str = country
+
         net_table.add_row(
             f"#{cycle}",
             uptime_str,
             styled_status,
             ip,
-            loc_str,
+            loc_str[:32],
             org[:26],
         )
 
@@ -295,13 +302,15 @@ class RichDashboard:
         rate_pct = f"{(stats.get('total_success', 0) / max(total_runs, 1) * 100):.1f}%" if total_runs > 0 else "0.0%"
         speed_hr = f"{(stats.get('total_success', 0) / max(elapsed, 1) * 3600):.1f}/h"
 
+        loc_state = ip_info.get("state") or ip_info.get("region")
+        loc_str = f"{city}, {loc_state}, {country}" if (loc_state and loc_state != "N/A" and loc_state.lower() != city.lower()) else f"{city}, {country}"
         out = [
             f"╔═══════════════════════════════════════════════════════════════════════════════╗",
             f"║  🛡️  CLOUDFLARE AUTO -- {self.platform_name.upper()} SUPERVISOR DASHBOARD",
             f"║     {self.target_subtitle}",
             f"╠═══════════════════════════════════════════════════════════════════════════════╣",
             f"║  Cycle     : #{cycle:<4} | Uptime: {uptime_str:<8} | Status: {status_msg:<27}",
-            f"║  Public IP : {ip:<15} | Location: {city}, {country:<4} | ISP: {org:<22}",
+            f"║  Public IP : {ip:<15} | Location: {loc_str[:26]:<26} | ISP: {org:<22}",
             f"╠═══════════════════════════════════════════════════════════════════════════════╣",
             f"║  SUCCESS: {stats.get('total_success', 0):<5} ✅ │ FAILED: {stats.get('total_failure', 0):<4} ❌ │ RATE: {rate_pct:<6} │ SPEED: {speed_hr:<8}",
             f"║  ACTIVE WORKERS: {active_workers}/{total_workers:<2} 🚀 │ LIMITS: {stats.get('total_rate_limit', 0):<3} ⚠️",
