@@ -254,6 +254,308 @@ async def _check_rate_limit_error(page: Page, intercepted: Optional[list] = None
     return None
 
 
+async def _check_maintenance_error(page: Page, intercepted: Optional[list] = None) -> Optional[str]:
+    """Checks if an OTP login maintenance error is displayed on the page or intercepted over network.
+
+    Returns the maintenance error message if detected, otherwise None.
+    """
+    if intercepted and intercepted[0]:
+        msg = intercepted[0]
+        intercepted[0] = None
+        return str(msg)
+
+    try:
+        selectors = [
+            '[role="alert"]',
+            '.alert',
+            '.error',
+            '.warning',
+            '.toast',
+            '.notification',
+            '.message',
+            '[class*="error" i]',
+            '[class*="toast" i]',
+            '[class*="alert" i]',
+            '[class*="notice" i]',
+            '[id*="error" i]',
+            '[id*="toast" i]',
+            'div',
+            'p',
+            'span',
+        ]
+
+        def _is_maintenance(text: str) -> bool:
+            lower = text.lower()
+            return ("maintainance" in lower or "maintenance" in lower) and ("otp" in lower or "login" in lower)
+
+        for sel in selectors:
+            try:
+                elements = await page.query_selector_all(sel)
+                for el in elements:
+                    if not await el.is_visible():
+                        continue
+                    txt = (await el.inner_text()).strip()
+                    if txt and _is_maintenance(txt):
+                        return txt
+            except Exception:
+                continue
+
+        body_txt = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if body_txt and _is_maintenance(body_txt):
+            for line in body_txt.splitlines():
+                line_str = line.strip()
+                if line_str and _is_maintenance(line_str):
+                    return line_str
+            return "OTP login maintenance detected"
+    except Exception:
+        pass
+    return None
+
+
+async def _click_change_email(page: Page, log: Callable) -> bool:
+    """Finds and clicks the 'Change Email' button/link on the OTP screen."""
+    log("[*] Looking for 'Change Email' button/link on the OTP screen...")
+
+    selectors = [
+        'button:has-text("Change email")',
+        'button:has-text("Change Email")',
+        'button:has-text("change email")',
+        'a:has-text("Change email")',
+        'a:has-text("Change Email")',
+        'a:has-text("change email")',
+        '[role="button"]:has-text("Change email")',
+        '[role="button"]:has-text("Change Email")',
+        'span:has-text("Change email")',
+        'span:has-text("Change Email")',
+        'p:has-text("Change email")',
+        'button:has-text("Change")',
+        'a:has-text("Change")',
+        '[role="button"]:has-text("Change")',
+        'button:has-text("Edit email")',
+        'a:has-text("Edit email")',
+        'button:has-text("Edit")',
+        'a:has-text("Edit")',
+        'button:has-text("Wrong email")',
+        'a:has-text("Wrong email")',
+        '[aria-label*="change email" i]',
+        '[aria-label*="change" i]',
+        '[aria-label*="edit" i]',
+        '[title*="change email" i]',
+        '[title*="change" i]',
+        '[title*="edit" i]',
+        '[class*="change-email" i]',
+        '[class*="changeEmail" i]',
+        '[id*="change-email" i]',
+        '[id*="changeEmail" i]',
+    ]
+
+    for sel in selectors:
+        try:
+            elem = await page.query_selector(sel)
+            if elem and await elem.is_visible():
+                txt = (await elem.inner_text()).strip()
+                log(f"[+] Found Change Email element ({sel}: '{txt}'). Clicking...")
+                await elem.scroll_into_view_if_needed()
+                await asyncio.sleep(random.uniform(0.2, 0.4))
+                await elem.click()
+                return True
+        except Exception:
+            continue
+
+    try:
+        clicked = await page.evaluate("""() => {
+            const elements = Array.from(document.querySelectorAll('button, a, span, p, div, [role="button"]'));
+            for (const el of elements) {
+                const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                if (text === 'change email' || text === 'change email address' || text === 'edit email' || text === 'change') {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        el.click();
+                        return true;
+                    }
+                }
+            }
+            for (const el of elements) {
+                if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button' || el.onclick) {
+                    const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    if (text.includes('change email') || text.includes('change') || text.includes('edit')) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }""")
+        if clicked:
+            log("[+] Clicked 'Change Email' via DOM element search.")
+            return True
+    except Exception as e:
+        log(f"[!] DOM evaluate for change email: {e}")
+
+    back_selectors = [
+        'button:has-text("Back")',
+        'a:has-text("Back")',
+        '[aria-label*="back" i]',
+        '[title*="back" i]',
+        '[class*="back" i]',
+    ]
+    for sel in back_selectors:
+        try:
+            elem = await page.query_selector(sel)
+            if elem and await elem.is_visible():
+                log(f"[+] Found Back element ({sel}). Clicking to return to email screen...")
+                await elem.click()
+                return True
+        except Exception:
+            continue
+
+    log("[!] Could not locate 'Change Email' element on OTP screen.")
+    return False
+
+
+async def _handle_otp_maintenance_resend(
+    page: Page,
+    email_address: str,
+    log: Callable,
+    rate_limit_intercepted: Optional[list] = None,
+) -> bool:
+    """Handles 'otp login maintenance' error on OTP screen:
+
+    1. Clicks 'Change Email'.
+    2. Waits for email input on the login screen.
+    3. Confirms/re-fills the exact same email address.
+    4. Clicks 'Send OTP' again.
+    5. Waits for OTP verification screen to reload.
+    """
+    log(f"[*] 🔄 Triggering OTP Maintenance Recovery: Resending OTP to same email ({email_address})...")
+
+    # Step 1: Click Change Email
+    clicked = await _click_change_email(page, log)
+    await asyncio.sleep(1.0)
+
+    if not clicked or "/otp" in page.url:
+        try:
+            email_inp = await page.query_selector('input[type="email"], input[name="email"], input[placeholder*="@"]')
+            if not email_inp or not await email_inp.is_visible():
+                log("[*] Trying page.go_back() to return to login email form...")
+                await page.go_back(wait_until="domcontentloaded", timeout=5000)
+                await asyncio.sleep(1.0)
+        except Exception:
+            pass
+
+    # Step 2: Wait for email input field to be ready
+    try:
+        email_input = await _wait_for_email_input(page, timeout=15000)
+    except Exception as e:
+        log(f"[!] Failed to find email input field after clicking Change Email: {e}")
+        return False
+
+    # Step 3: Ensure the email input field has the exact same email address
+    try:
+        curr_val = (await email_input.input_value()).strip()
+    except Exception:
+        curr_val = ""
+
+    if curr_val.lower() != email_address.lower():
+        log(f"[*] Re-filling exact same email address into input: {email_address}...")
+        try:
+            await email_input.click()
+            select_all_key = "Meta+a" if sys.platform == "darwin" else "Control+a"
+            await page.keyboard.press(select_all_key)
+            await page.keyboard.press("Backspace")
+            await email_input.fill("")
+        except Exception:
+            pass
+        await asyncio.sleep(0.2)
+        await _human_type(page, email_input, email_address, log)
+    else:
+        log(f"[+] Email input already contains exact email: {email_address}")
+
+    await asyncio.sleep(random.uniform(0.5, 1.2))
+
+    # Step 4: Click Send OTP button again
+    try:
+        send_btn = await _find_send_otp_button(page)
+        log("[*] Clicking 'Send OTP' button again...")
+        await send_btn.click()
+    except Exception as e:
+        log(f"[!] Could not click Send OTP button on retry: {e}")
+        return False
+
+    # Step 5: Wait for OTP screen to reload
+    log("[*] Waiting for OTP verification screen to reappear...")
+    reloaded_otp = False
+    start_wait = time.time()
+    while (time.time() - start_wait) < 30:
+        rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
+        if rate_limit:
+            wait_sec, msg = rate_limit
+            await _take_screenshot(page, "rate_limited", log)
+            raise RateLimitError(wait_sec, msg)
+
+        if "/otp" in page.url:
+            reloaded_otp = True
+            break
+        otp_inputs = await _find_otp_inputs(page)
+        if len(otp_inputs) >= 4:
+            reloaded_otp = True
+            break
+        await asyncio.sleep(1.0)
+
+    if reloaded_otp:
+        log("[+] ✅ Successfully returned to OTP verification screen with fresh OTP requested!")
+        await asyncio.sleep(1.0)
+        return True
+    else:
+        log(f"[!] Warning: Did not detect OTP screen within 30s of resend. Current URL: {page.url}")
+        return False
+
+
+async def _enter_and_verify_otp(page: Page, otp_code: str, log: Callable) -> None:
+    """Enter OTP digits into fields and click verify/confirm button."""
+    otp_inputs = await _find_otp_inputs(page)
+    log(f"[*] Found {len(otp_inputs)} OTP input(s)")
+
+    if len(otp_inputs) == len(otp_code):
+        log(f"[*] Entering {len(otp_code)} digits individually...")
+        for idx, digit in enumerate(otp_code):
+            await otp_inputs[idx].fill(digit)
+            await asyncio.sleep(random.uniform(0.05, 0.15))
+    elif len(otp_inputs) == 1:
+        log("[*] Entering OTP into single input field...")
+        await otp_inputs[0].fill(otp_code)
+    else:
+        log("[*] Typing OTP via keyboard...")
+        if otp_inputs:
+            await otp_inputs[0].focus()
+        await page.keyboard.type(otp_code, delay=random.randint(40, 80))
+
+    log("[*] Checking for verify button...")
+    await asyncio.sleep(0.5)
+    try:
+        verify_selectors = [
+            'button:has-text("Verify")',
+            'button:has-text("Confirm")',
+            'button:has-text("Submit")',
+            'button[type="submit"]',
+        ]
+        for sel in verify_selectors:
+            try:
+                verify_btn = await page.query_selector(sel)
+                if verify_btn and await verify_btn.is_visible() and await verify_btn.is_enabled():
+                    log(f"[*] Clicking verify button ({sel})...")
+                    await asyncio.sleep(random.uniform(0.2, 0.5))
+                    await verify_btn.click()
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 def cleanup_all_screenshots() -> None:
     """Remove any leftover debug screenshots from temp directory to prevent clogging storage."""
     import tempfile
@@ -378,8 +680,9 @@ async def register_and_verify(
 
         page = await context.new_page()
 
-        # Monitor network responses for HTTP 429 rate limit
+        # Monitor network responses for HTTP 429 rate limit or maintenance
         rate_limit_intercepted = [None]
+        maintenance_intercepted = [None]
 
         def _on_response(resp):
             if resp.status == 429:
@@ -608,16 +911,67 @@ async def register_and_verify(
 
             await asyncio.sleep(1)  # Let the page settle
 
-            # ── Step 7: Poll for OTP code ──
+            # Quick check if maintenance error is immediately visible upon landing on OTP screen
+            initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
+            if initial_maint:
+                log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
+                log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
+                await _handle_otp_maintenance_resend(
+                    page=page,
+                    email_address=email_address,
+                    log=log,
+                    rate_limit_intercepted=rate_limit_intercepted,
+                )
+
+            # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
             otp_timeout = max(120, timeout)
-            otp_code = await asyncio.to_thread(
-                mail_client.wait_for_otp,
-                email_address,
-                timeout=otp_timeout,
-                poll_interval=2.0,
-                log_callback=log,
-            )
+            otp_code = None
+            start_poll = time.time()
+            poll_attempt = 1
+            maintenance_retries = 0
+            max_maintenance_retries = 3
+
+            while (time.time() - start_poll) < otp_timeout:
+                # 1. Non-blocking check for OTP in TempMail.Plus inbox
+                otp_code = await asyncio.to_thread(mail_client.get_latest_code, email_address)
+                if otp_code:
+                    log(f"[+] Received OTP code: {otp_code}")
+                    break
+
+                elapsed = int(time.time() - start_poll)
+                if elapsed > 0 and elapsed % 6 == 0:
+                    log(f"[*] Waiting for OTP on {email_address}... ({elapsed}/{otp_timeout}s elapsed, attempt {poll_attempt})")
+
+                # 2. Check if rate limit error appeared
+                rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
+                if rate_limit:
+                    wait_sec, msg = rate_limit
+                    await _take_screenshot(page, "rate_limited", log)
+                    log(f"[!] ⚠️ Rate limit encountered: {msg}")
+                    raise RateLimitError(wait_sec, msg)
+
+                # 3. Check for OTP login maintenance error on OTP screen
+                maint_err = await _check_maintenance_error(page, maintenance_intercepted)
+                if maint_err and maintenance_retries < max_maintenance_retries:
+                    maintenance_retries += 1
+                    log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
+                    log(f"[*] Clicking 'Change Email' and resending OTP to exact same email: {email_address}...")
+                    resend_ok = await _handle_otp_maintenance_resend(
+                        page=page,
+                        email_address=email_address,
+                        log=log,
+                        rate_limit_intercepted=rate_limit_intercepted,
+                    )
+                    if resend_ok:
+                        # Reset wait timer so the new OTP has full time to arrive
+                        start_poll = time.time()
+                        log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
+                    else:
+                        log("[!] Could not complete Change Email resend cycle, continuing wait...")
+
+                await asyncio.sleep(2.0)
+                poll_attempt += 1
 
             if not otp_code:
                 await _take_screenshot(page, "otp_timeout", log)
@@ -625,59 +979,61 @@ async def register_and_verify(
 
             log(f"[+] OTP received: {otp_code}")
 
-            # ── Step 8: Enter OTP digits ──
-            otp_inputs = await _find_otp_inputs(page)
-            log(f"[*] Found {len(otp_inputs)} OTP input(s)")
-
-            if len(otp_inputs) == len(otp_code):
-                # Individual digit inputs
-                log(f"[*] Entering {len(otp_code)} digits individually...")
-                for idx, digit in enumerate(otp_code):
-                    await otp_inputs[idx].fill(digit)
-                    await asyncio.sleep(random.uniform(0.05, 0.15))
-            elif len(otp_inputs) == 1:
-                # Single combined input
-                log("[*] Entering OTP into single input field...")
-                await otp_inputs[0].fill(otp_code)
-            else:
-                # Fallback: focus first input and type the whole code
-                log("[*] Typing OTP via keyboard...")
-                if otp_inputs:
-                    await otp_inputs[0].focus()
-                await page.keyboard.type(otp_code, delay=random.randint(40, 80))
-
-            # ── Step 9: Handle verify button (if not auto-submit) ──
-            log("[*] Checking for verify button...")
-            await asyncio.sleep(0.5)
-            try:
-                verify_selectors = [
-                    'button:has-text("Verify")',
-                    'button:has-text("Confirm")',
-                    'button:has-text("Submit")',
-                    'button[type="submit"]',
-                ]
-                for sel in verify_selectors:
-                    try:
-                        verify_btn = await page.query_selector(sel)
-                        if verify_btn and await verify_btn.is_visible() and await verify_btn.is_enabled():
-                            log(f"[*] Clicking verify button ({sel})...")
-                            await asyncio.sleep(random.uniform(0.2, 0.5))
-                            await verify_btn.click()
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass  # Auto-submit may have already navigated
+            # ── Step 8 & 9: Enter OTP digits and submit ──
+            await _enter_and_verify_otp(page, otp_code, log)
 
             # ── Step 10: Wait for dashboard ──
             log("[*] Waiting for dashboard redirection...")
-            try:
-                await page.wait_for_url(
-                    lambda u: "/otp" not in u and "/login" not in u and "/referral" not in u,
-                    timeout=20000,
-                )
-            except Exception:
-                # Check if we're already on the dashboard
+            dashboard_reached = False
+            start_dash_wait = time.time()
+            dash_timeout = 25
+            post_maint_handled = False
+
+            while (time.time() - start_dash_wait) < dash_timeout:
+                current = page.url
+                if "/otp" not in current and "/login" not in current and "/referral" not in current:
+                    dashboard_reached = True
+                    break
+
+                # Check if rate limit error banner appeared
+                rate_limit = await _check_rate_limit_error(page, rate_limit_intercepted)
+                if rate_limit:
+                    wait_sec, msg = rate_limit
+                    await _take_screenshot(page, "rate_limited", log)
+                    log(f"[!] ⚠️ Rate limit encountered: {msg}")
+                    raise RateLimitError(wait_sec, msg)
+
+                # Check if maintenance error appeared after submitting OTP
+                if not post_maint_handled:
+                    maint_err = await _check_maintenance_error(page, maintenance_intercepted)
+                    if maint_err:
+                        post_maint_handled = True
+                        log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
+                        log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
+                        resend_ok = await _handle_otp_maintenance_resend(
+                            page=page,
+                            email_address=email_address,
+                            log=log,
+                            rate_limit_intercepted=rate_limit_intercepted,
+                        )
+                        if resend_ok:
+                            log(f"[*] Polling TempMail.Plus inbox for new OTP code ({email_address})...")
+                            new_otp = None
+                            start_new_poll = time.time()
+                            while (time.time() - start_new_poll) < 60:
+                                new_otp = await asyncio.to_thread(mail_client.get_latest_code, email_address)
+                                if new_otp and new_otp != otp_code:
+                                    break
+                                await asyncio.sleep(2.0)
+                            if new_otp:
+                                otp_code = new_otp
+                                log(f"[+] New OTP received: {otp_code}. Entering into inputs...")
+                                await _enter_and_verify_otp(page, otp_code, log)
+                                start_dash_wait = time.time()
+
+                await asyncio.sleep(1.0)
+
+            if not dashboard_reached:
                 current = page.url
                 if "/otp" not in current and "/login" not in current:
                     log(f"[*] Already on dashboard: {current}")

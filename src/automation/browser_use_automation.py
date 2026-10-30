@@ -152,10 +152,11 @@ def create_browser_use_agent(
         "3. On the referral page, click the 'Get started free' button to go to the login/signup form.\n"
         "4. Wait for the login form to appear, then type the generated email address into the email input field.\n"
         "5. Click the 'Send OTP' button.\n"
-        "6. Once on the OTP verification screen (/otp), call `fetch_verification_otp` to obtain the 6-digit verification code.\n"
-        "7. Enter the 6 digits into the OTP boxes on the screen.\n"
-        "8. Verify that registration completes and the browser redirects to the dashboard (https://websurfer.1024tenbox.com/).\n"
-        "9. Finish and report the final verified email address and account status."
+        "6. Once on the OTP verification screen (/otp), check if there is an error saying 'otp login maintainance' or maintenance. If so, click 'Change Email', verify the exact same email address is present, and click 'Send OTP' again.\n"
+        "7. Call `fetch_verification_otp` to obtain the 6-digit verification code.\n"
+        "8. Enter the 6 digits into the OTP boxes on the screen.\n"
+        "9. Verify that registration completes and the browser redirects to the dashboard (https://websurfer.1024tenbox.com/).\n"
+        "10. Finish and report the final verified email address and account status."
     )
 
     # Configure BrowserSession with randomized fingerprint
