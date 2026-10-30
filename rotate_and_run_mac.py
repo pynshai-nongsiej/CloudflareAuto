@@ -278,17 +278,33 @@ def main():
             close_all_terminals()
             clear_trigger_flag()
 
-            # 2. Rotate NordVPN to random location via OpenVPN CLI
-            try:
-                country_target = args.country if hasattr(args, "country") and args.country and cycle_count == 1 else None
-                ip_info = rotate_vpn(country_target)
-            except Exception as e:
-                # Retry rotation once on error
-                time.sleep(3)
+            # 2. Rotate NordVPN across 7,100+ servers with verified public IP change
+            ip_info = None
+            rot_attempt = 0
+            while not ip_info and rot_attempt < 5:
+                rot_attempt += 1
                 try:
-                    ip_info = rotate_vpn()
-                except Exception:
-                    ip_info = get_current_ip_info()
+                    render_dashboard(
+                        cycle_count,
+                        start_time,
+                        {"ip": "Rotating...", "country": "??", "city": "...", "org": "NordVPN"},
+                        total_workers,
+                        status_msg=f"Rotating VPN across 7,100+ pool (Attempt {rot_attempt}/5)...",
+                    )
+                    country_target = args.country if hasattr(args, "country") and args.country and cycle_count == 1 else None
+                    ip_info = rotate_vpn(country_target)
+                except Exception as e:
+                    render_dashboard(
+                        cycle_count,
+                        start_time,
+                        {"ip": "Retrying...", "country": "??", "city": "...", "org": "NordVPN"},
+                        total_workers,
+                        status_msg=f"⚠️ VPN Rotation Error: {e}",
+                    )
+                    time.sleep(3)
+
+            if not ip_info or ip_info.get("ip") in ("unknown", "Connecting...", "Retrying...", "Rotating..."):
+                raise RuntimeError("Failed to verify IP change after VPN rotation. Aborting batch to protect local IP from rate limits.")
 
             # 3. Launch workers in visible Terminal windows
             mode_desc = "Headed Terminal Windows" if not args.headless else "Headless Background"

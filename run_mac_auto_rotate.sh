@@ -14,6 +14,21 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+# Ensure sudo credentials are valid and kept alive for the session
+if [[ $EUID -ne 0 ]]; then
+    if ! sudo -n true 2>/dev/null; then
+        echo "================================================================"
+        echo "  CloudflareAuto requires sudo to manage OpenVPN on macOS."
+        echo "  Please enter your sudo password:"
+        echo "================================================================"
+        sudo -v || exit 1
+    fi
+    # Keep sudo credentials active in background
+    ( while true; do sudo -n true 2>/dev/null; sleep 50; done ) &
+    SUDO_PID=$!
+    trap "kill -9 $SUDO_PID 2>/dev/null || true" EXIT
+fi
+
 PYTHON="$PROJECT_DIR/.venv/bin/python"
 if [[ ! -f "$PYTHON" ]]; then
     PYTHON="python3"

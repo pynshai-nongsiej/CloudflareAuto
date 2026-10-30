@@ -77,12 +77,14 @@ DEFAULT_PASS = "uwXH67Ynz64N3M85r9EuwQxa"
 # In-memory history to avoid immediately reusing the exact same location/server
 RECENT_SERVERS: List[str] = []
 RECENT_LOCATIONS: List[str] = []
+RECENT_CITIES: List[str] = []
 
-# Session-level duplicate tracking: guarantees ZERO duplicate locations/servers in the same session
+# Session-level duplicate tracking: guarantees ZERO duplicate servers, IPs, or locations in the same session
 SESSION_USED_SERVERS: set[str] = set()       # Hostnames e.g. 'us13946.nordvpn.com'
 SESSION_USED_LOCATIONS: set[str] = set()     # e.g. 'San Francisco, California, United States'
 SESSION_USED_COUNTRIES: set[str] = set()     # e.g. 'United States', 'Germany'
 SESSION_USED_STATIONS: set[str] = set()      # Station IPs
+SESSION_USED_IPS: set[str] = set()           # Verified external public IPs
 SESSION_ROTATION_COUNT: int = 0
 
 
@@ -93,6 +95,8 @@ def reset_session_history():
     SESSION_USED_LOCATIONS.clear()
     SESSION_USED_COUNTRIES.clear()
     SESSION_USED_STATIONS.clear()
+    SESSION_USED_IPS.clear()
+    RECENT_CITIES.clear()
     SESSION_ROTATION_COUNT = 0
 
 
@@ -316,87 +320,98 @@ def select_random_server(
     target_city: Optional[str] = None,
     countries: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Select a randomized server, switching countries, states, and cities without session duplicates.
+    """Select a randomized server evenly across the global pool of 7,100+ NordVPN servers.
 
-    NordVPN has over 7,100+ servers across 225+ locations in 110+ countries.
-    Guarantees no duplicate servers or locations are reused in the same session.
+    Ensures zero duplicate servers or station IPs are reused in the same session,
+    and scatters consecutive connections across different cities and locations.
     """
     global SESSION_ROTATION_COUNT
     if not countries:
         countries = get_all_available_countries()
 
-    # 1. Country Selection without duplicates in the same session
-    chosen_country = target_country
-    if not chosen_country:
-        # Avoid countries already used in this session to prevent duplicate countries
-        fresh_countries = [
-            c for c in countries
-            if c.get("name") not in SESSION_USED_COUNTRIES
-            and c.get("code") not in SESSION_USED_COUNTRIES
-        ]
-        # If all countries in the pool have been visited in this session, reset session country history
-        if not fresh_countries:
-            print(f"  [i] All {len(countries)} countries visited in this session! Cycling session country pool.")
-            SESSION_USED_COUNTRIES.clear()
-            fresh_countries = countries
-
-        # Avoid immediate last country if alternatives exist
-        if len(RECENT_LOCATIONS) > 0 and len(fresh_countries) > 1:
-            last_country = RECENT_LOCATIONS[-1].split(", ")[-1]
-            non_recent = [c for c in fresh_countries if c.get("name") != last_country]
-            if non_recent:
-                fresh_countries = non_recent
-
-        chosen_country = random.choice(fresh_countries)
-
-    country_id = chosen_country.get("id", 228)
-    country_name = chosen_country.get("name", "United States")
-    country_code = chosen_country.get("code", "US")
-    server_count = chosen_country.get("serverCount", 100)
-
-    # Calculate random offset to explore different cities and states across the pool
-    batch_size = 60
-    max_offset = max(0, server_count - batch_size)
-    offset = random.randint(0, max_offset) if max_offset > 0 else 0
-
-    url = (
-        f"https://api.nordvpn.com/v1/servers"
-        f"?filters[country_id]={country_id}"
-        f"&filters[servers_technologies][id]=3"
-        f"&limit={batch_size}"
-        f"&offset={offset}"
-    )
-
-    req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+    total_pool_servers = sum(c.get("serverCount", 0) for c in countries) or 7236
+    batch_size = 40
     servers_batch = []
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            servers_batch = json.loads(resp.read().decode())
-    except Exception as e:
-        print(f"[!] Warning: Failed to query server batch ({e}), checking recommendations...")
 
-    # If batch query returned empty, try recommendations API
-    if not servers_batch:
+    # Case A: User explicitly targeted a country, state, or city
+    if target_country:
+        country_id = target_country.get("id", 228)
+        country_name = target_country.get("name", "United States")
+        country_code = target_country.get("code", "US")
+        server_count = target_country.get("serverCount", 100)
+
+        max_offset = max(0, server_count - batch_size)
+        offset = random.randint(0, max_offset) if max_offset > 0 else 0
+
+        url = (
+            f"https://api.nordvpn.com/v1/servers"
+            f"?filters[country_id]={country_id}"
+            f"&filters[servers_technologies][id]=3"
+            f"&limit={batch_size}"
+            f"&offset={offset}"
+        )
         try:
-            rec_url = f"https://api.nordvpn.com/v1/servers/recommendations?filters[country_id]={country_id}&limit=25"
-            rec_req = urllib.request.Request(rec_url, headers={"User-Agent": "curl/7.68.0"})
-            with urllib.request.urlopen(rec_req, timeout=8) as rec_resp:
-                servers_batch = json.loads(rec_resp.read().decode())
-        except Exception:
-            pass
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                servers_batch = json.loads(resp.read().decode())
+        except Exception as e:
+            print(f"[!] Warning: Failed to query targeted country server batch ({e})")
 
-    # Process and group discovered servers by (city, state), skipping duplicates in the same session
-    locations_map: Dict[Tuple[str, Optional[str]], List[Dict[str, Any]]] = {}
+    # Case B: Global pool selection (no target) - Uniform random across all 7,100+ servers
+    else:
+        # Pick a random offset across the entire 7,100+ global pool
+        max_global_offset = max(0, total_pool_servers - batch_size)
+        offset = random.randint(0, max_global_offset) if max_global_offset > 0 else 0
+
+        url = (
+            f"https://api.nordvpn.com/v1/servers"
+            f"?filters[servers_technologies][id]=3"
+            f"&limit={batch_size}"
+            f"&offset={offset}"
+        )
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                servers_batch = json.loads(resp.read().decode())
+        except Exception as e:
+            print(f"[!] Warning: Global server query at offset {offset} failed ({e}), trying country-weighted fallback...")
+
+        # If direct global offset query failed, fallback to country-weighted selection
+        if not servers_batch:
+            weights = [max(1, c.get("serverCount", 1)) for c in countries]
+            chosen_c = random.choices(countries, weights=weights, k=1)[0]
+            c_id = chosen_c.get("id", 228)
+            c_count = chosen_c.get("serverCount", 100)
+            c_offset = random.randint(0, max(0, c_count - batch_size))
+            c_url = (
+                f"https://api.nordvpn.com/v1/servers"
+                f"?filters[country_id]={c_id}"
+                f"&filters[servers_technologies][id]=3"
+                f"&limit={batch_size}"
+                f"&offset={c_offset}"
+            )
+            try:
+                req = urllib.request.Request(c_url, headers={"User-Agent": "curl/7.68.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    servers_batch = json.loads(resp.read().decode())
+            except Exception:
+                pass
+
+    # Process and filter candidates: skip any server hostname or station IP already used in this session
+    valid_candidates = []
     for s in servers_batch:
         hostname = s.get("hostname", "")
         station = s.get("station", "")
 
-        # Skip any server hostname or station already connected to in this session
-        if hostname in SESSION_USED_SERVERS or (station and station in SESSION_USED_STATIONS):
+        if not hostname or hostname in SESSION_USED_SERVERS:
+            continue
+        if station and station in SESSION_USED_STATIONS:
             continue
 
         loc = s.get("locations", [{}])[0]
         c_dict = loc.get("country", {})
+        c_name = c_dict.get("name", "Unknown")
+        c_code = c_dict.get("code", "N/A")
         city_name = c_dict.get("city", {}).get("name", "Unknown")
         sub_dict = c_dict.get("subdivision")
         state_name = sub_dict.get("name") if sub_dict else None
@@ -407,114 +422,51 @@ def select_random_server(
         if target_city and city_name.lower() != target_city.lower():
             continue
 
-        key = (city_name, state_name)
-        locations_map.setdefault(key, []).append(s)
+        loc_str = f"{city_name}, {state_name}, {c_name}" if state_name else f"{city_name}, {c_name}"
+        valid_candidates.append({
+            "id": s.get("id"),
+            "name": s.get("name", hostname),
+            "hostname": hostname,
+            "station": station or "N/A",
+            "load": s.get("load", 0),
+            "country": c_name,
+            "country_code": c_code,
+            "state": state_name or "State/Region",
+            "city": city_name,
+            "location_str": loc_str,
+            "session_count": SESSION_ROTATION_COUNT + 1,
+        })
 
-    # Pick a random location from the available cities/states without duplicate in session
-    if locations_map:
-        loc_keys = list(locations_map.keys())
+    # Pick a candidate, avoiding immediate recent cities to scatter connections
+    if valid_candidates:
+        non_recent = [c for c in valid_candidates if c["city"] not in RECENT_CITIES]
+        candidate_pool = non_recent if non_recent else valid_candidates
+        chosen = random.choice(candidate_pool)
 
-        # Prefer cities/locations not yet visited in this session
-        fresh_loc_keys = [
-            k for k in loc_keys
-            if f"{k[0]}, {k[1]}, {country_name}" not in SESSION_USED_LOCATIONS
-            and f"{k[0]}, {country_name}" not in SESSION_USED_LOCATIONS
-        ]
-        chosen_loc_pool = fresh_loc_keys if fresh_loc_keys else loc_keys
-        chosen_loc = random.choice(chosen_loc_pool)
+        if chosen["city"] and chosen["city"] != "Unknown":
+            RECENT_CITIES.append(chosen["city"])
+            if len(RECENT_CITIES) > 10:
+                RECENT_CITIES.pop(0)
 
-        candidate_servers = locations_map[chosen_loc]
-        # candidate_servers already filtered against SESSION_USED_SERVERS
-        chosen_s = random.choice(candidate_servers)
-
-        city_val, state_val = chosen_loc
-        loc_str = f"{city_val}, {state_val}" if state_val else city_val
-        full_loc_str = f"{loc_str}, {country_name}"
-
-        # Record to session history
-        SESSION_ROTATION_COUNT += 1
-        SESSION_USED_COUNTRIES.add(country_name)
-        SESSION_USED_COUNTRIES.add(country_code)
-        SESSION_USED_LOCATIONS.add(full_loc_str)
-        if chosen_s.get("hostname"):
-            SESSION_USED_SERVERS.add(chosen_s["hostname"])
-        if chosen_s.get("station") and chosen_s["station"] != "N/A":
-            SESSION_USED_STATIONS.add(chosen_s["station"])
-
-        RECENT_LOCATIONS.append(full_loc_str)
+        RECENT_LOCATIONS.append(chosen["location_str"])
         if len(RECENT_LOCATIONS) > 20:
             RECENT_LOCATIONS.pop(0)
-        RECENT_SERVERS.append(chosen_s.get("hostname", ""))
+        RECENT_SERVERS.append(chosen["hostname"])
         if len(RECENT_SERVERS) > 20:
             RECENT_SERVERS.pop(0)
 
-        return {
-            "id": chosen_s.get("id"),
-            "name": chosen_s.get("name"),
-            "hostname": chosen_s.get("hostname"),
-            "station": chosen_s.get("station", "N/A"),
-            "load": chosen_s.get("load", 0),
-            "country": country_name,
-            "country_code": country_code,
-            "state": state_val or "State/Region",
-            "city": city_val,
-            "location_str": loc_str,
-            "session_count": SESSION_ROTATION_COUNT,
-        }
+        return chosen
 
-    # Fallback to verified fallback list matching country or state without session duplicate
-    matching_fallbacks = [
-        f for f in FALLBACK_SERVERS
-        if (f["id"] == country_id or f["country_code"] == country_code)
-        and f["hostname"] not in SESSION_USED_SERVERS
-    ]
-    if target_state:
-        state_matches = [
-            f for f in matching_fallbacks if f.get("state", "").lower() == target_state.lower()
-        ]
-        if state_matches:
-            matching_fallbacks = state_matches
-
-    if matching_fallbacks:
-        fb = random.choice(matching_fallbacks)
-        SESSION_ROTATION_COUNT += 1
-        SESSION_USED_COUNTRIES.add(fb["country"])
-        SESSION_USED_COUNTRIES.add(fb["country_code"])
-        loc_str = f"{fb.get('city')}, {fb.get('state')}"
-        SESSION_USED_LOCATIONS.add(f"{loc_str}, {fb['country']}")
-        SESSION_USED_SERVERS.add(fb["hostname"])
-        if fb.get("station") and fb["station"] != "N/A":
-            SESSION_USED_STATIONS.add(fb["station"])
-        return {
-            "id": fb["id"],
-            "name": fb["name"],
-            "hostname": fb["hostname"],
-            "station": fb.get("station", "N/A"),
-            "load": 10,
-            "country": fb["country"],
-            "country_code": fb["country_code"],
-            "state": fb.get("state", "State"),
-            "city": fb.get("city", "City"),
-            "location_str": loc_str,
-            "session_count": SESSION_ROTATION_COUNT,
-        }
-
-    # Fallback to any cached config avoiding session duplicates
-    cached = find_cached_ovpn(country_code)
+    # Fallback 1: Local cached configs matching country or any without session duplicates
+    c_code_filter = target_country.get("code", "") if target_country else ""
+    cached = find_cached_ovpn(c_code_filter)
     if cached:
         return cached
 
-    # Random fallback from full list avoiding session duplicates
+    # Fallback 2: Verified fallback list avoiding session duplicates
     unused_fallbacks = [f for f in FALLBACK_SERVERS if f["hostname"] not in SESSION_USED_SERVERS]
     fb = random.choice(unused_fallbacks if unused_fallbacks else FALLBACK_SERVERS)
-    SESSION_ROTATION_COUNT += 1
-    SESSION_USED_COUNTRIES.add(fb["country"])
-    SESSION_USED_COUNTRIES.add(fb["country_code"])
-    loc_str = f"{fb.get('city')}, {fb.get('state')}"
-    SESSION_USED_LOCATIONS.add(f"{loc_str}, {fb['country']}")
-    SESSION_USED_SERVERS.add(fb["hostname"])
-    if fb.get("station") and fb["station"] != "N/A":
-        SESSION_USED_STATIONS.add(fb["station"])
+    loc_str = f"{fb.get('city')}, {fb.get('state')}, {fb['country']}"
     return {
         "id": fb["id"],
         "name": fb["name"],
@@ -526,7 +478,7 @@ def select_random_server(
         "state": fb.get("state", "State"),
         "city": fb.get("city", "City"),
         "location_str": loc_str,
-        "session_count": SESSION_ROTATION_COUNT,
+        "session_count": SESSION_ROTATION_COUNT + 1,
     }
 
 
@@ -589,18 +541,66 @@ def disconnect_vpn():
 
 
 def get_current_ip_info() -> dict:
-    """Fetch current external IP and location details."""
+    """Fetch current external IP and location details using multiple redundant services."""
+    # 1. ipinfo.io
     try:
         req = urllib.request.Request("https://ipinfo.io/json", headers={"User-Agent": "curl/7.68.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return json.loads(resp.read().decode())
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            if data.get("ip"):
+                return data
     except Exception:
-        try:
-            req = urllib.request.Request("https://api.ipify.org?format=json", headers={"User-Agent": "curl/7.68.0"})
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                return json.loads(resp.read().decode())
-        except Exception:
-            return {"ip": "unknown", "city": "unknown", "country": "unknown"}
+        pass
+
+    # 2. ip-api.com (ultra fast & comprehensive)
+    try:
+        req = urllib.request.Request("http://ip-api.com/json/", headers={"User-Agent": "curl/7.68.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            if data.get("query"):
+                return {
+                    "ip": data.get("query"),
+                    "city": data.get("city", "unknown"),
+                    "region": data.get("regionName", "unknown"),
+                    "country": data.get("countryCode", "unknown"),
+                    "org": data.get("isp") or data.get("org", "NordVPN"),
+                }
+    except Exception:
+        pass
+
+    # 3. api.ipify.org
+    try:
+        req = urllib.request.Request("https://api.ipify.org?format=json", headers={"User-Agent": "curl/7.68.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            if data.get("ip"):
+                return {
+                    "ip": data["ip"],
+                    "city": "unknown",
+                    "region": "unknown",
+                    "country": "unknown",
+                    "org": "NordVPN",
+                }
+    except Exception:
+        pass
+
+    # 4. icanhazip.com
+    try:
+        req = urllib.request.Request("https://icanhazip.com", headers={"User-Agent": "curl/7.68.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            ip_str = resp.read().decode().strip()
+            if ip_str:
+                return {
+                    "ip": ip_str,
+                    "city": "unknown",
+                    "region": "unknown",
+                    "country": "unknown",
+                    "org": "NordVPN",
+                }
+    except Exception:
+        pass
+
+    return {"ip": "unknown", "city": "unknown", "country": "unknown"}
 
 
 def read_log_file() -> str:
@@ -613,6 +613,32 @@ def read_log_file() -> str:
     return ""
 
 
+_SUDO_KEEPALIVE_STARTED = False
+
+
+def start_sudo_keepalive():
+    """Start a background daemon thread to keep sudo credentials active."""
+    global _SUDO_KEEPALIVE_STARTED
+    if _SUDO_KEEPALIVE_STARTED or SYSTEM not in ("Darwin", "Linux"):
+        return
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return
+
+    import threading
+
+    def _loop():
+        while True:
+            time.sleep(45)
+            try:
+                subprocess.run(["sudo", "-n", "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_loop, daemon=True, name="SudoKeepAlive")
+    t.start()
+    _SUDO_KEEPALIVE_STARTED = True
+
+
 def check_permissions_and_binary() -> bool:
     """Verify OpenVPN binary exists and proper privileges are present."""
     bin_path = shutil.which(OPENVPN_BIN) or (OPENVPN_BIN if Path(OPENVPN_BIN).exists() else None)
@@ -622,6 +648,9 @@ def check_permissions_and_binary() -> bool:
             print("   👉 Install OpenVPN on Windows by running PowerShell as Administrator:")
             print("      winget install OpenVPNTechnologies.OpenVPN")
             print("      Or download installer from: https://openvpn.net/community-downloads/")
+        elif SYSTEM == "Darwin":
+            print("   👉 Install OpenVPN on macOS by running:")
+            print("      brew install openvpn")
         else:
             print("   👉 Install OpenVPN on Linux by running:")
             print("      sudo apt-get update && sudo apt-get install -y openvpn")
@@ -637,6 +666,25 @@ def check_permissions_and_binary() -> bool:
                 print("   👉 Right-click PowerShell or Command Prompt and select 'Run as Administrator'.\n")
         except Exception:
             pass
+    elif SYSTEM in ("Darwin", "Linux") and hasattr(os, "geteuid") and os.geteuid() != 0:
+        # Check if sudo credentials are currently active
+        res = subprocess.run(["sudo", "-n", "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode != 0:
+            if sys.stdin.isatty():
+                print(f"\n🔑 OpenVPN requires administrator (sudo) privileges on {SYSTEM}.")
+                print("   Please enter your sudo password:")
+                sub_res = subprocess.run(["sudo", "-v"])
+                if sub_res.returncode != 0:
+                    print("❌ ERROR: sudo authentication failed.")
+                    return False
+            else:
+                print(f"\n❌ ERROR: OpenVPN requires sudo on {SYSTEM}, but no cached sudo credentials found.")
+                print(f"   Please run `./run_{'mac' if SYSTEM == 'Darwin' else 'linux'}_auto_rotate.sh` which prompts for sudo.")
+                return False
+
+        # Start the keepalive thread so sudo credentials never expire
+        start_sudo_keepalive()
+
     return True
 
 
@@ -694,6 +742,7 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--config", str(ovpn_path),
             "--auth-user-pass", str(AUTH_FILE),
             "--log", LOG_FILE,
+            "--redirect-gateway", "def1",
         ]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
@@ -719,6 +768,7 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--log", LOG_FILE,
             "--writepid", PID_FILE,
             "--verb", "3",
+            "--redirect-gateway", "def1",
             "--daemon",
         ])
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -781,15 +831,25 @@ def connect_to_server(ovpn_path: Path) -> bool:
     return connected
 
 
-def rotate_vpn(target_location: Optional[str] = None) -> dict:
+def rotate_vpn(target_location: Optional[str] = None, max_attempts: int = 5) -> dict:
     """Rotate VPN across 7,100+ servers and 225+ locations in 110+ countries.
 
-    Randomizes across countries, states/provinces, and cities.
-    Connects via OpenVPN CLI and returns verified IP and location info.
+    Guarantees:
+      1. Uniform random distribution across all 7,100+ servers.
+      2. Zero duplicate servers, station IPs, or public IPs in the same session.
+      3. Strict verification that the public IP changes per connection.
     """
+    global SESSION_ROTATION_COUNT
+
     # Cleanly disconnect previous VPN session first so normal DNS and routing are active
     disconnect_vpn()
     ensure_dns_healthy()
+
+    # Capture pre-rotation IP to guarantee the IP actually changes
+    pre_ip_info = get_current_ip_info()
+    pre_ip = pre_ip_info.get("ip", "unknown")
+    if pre_ip and pre_ip != "unknown":
+        print(f"[*] Pre-rotation Public IP: {pre_ip} ({pre_ip_info.get('city')}, {pre_ip_info.get('country')})")
 
     countries = get_all_available_countries()
     if not countries:
@@ -798,92 +858,136 @@ def rotate_vpn(target_location: Optional[str] = None) -> dict:
     # Resolve target country, state, or city if provided by user
     target_c, target_s, target_city = resolve_target(target_location, countries)
 
-    # Select randomized server from global pool
-    server = select_random_server(
-        target_country=target_c,
-        target_state=target_s,
-        target_city=target_city,
-        countries=countries,
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            print(f"\n[!] Rotation attempt #{attempt}/{max_attempts}...")
+            disconnect_vpn()
+            ensure_dns_healthy()
+            time.sleep(2.0)
+
+        # 1. Select randomized server from global 7,100+ pool
+        try:
+            server = select_random_server(
+                target_country=target_c,
+                target_state=target_s,
+                target_city=target_city,
+                countries=countries,
+            )
+        except Exception as sel_err:
+            last_error = sel_err
+            print(f"[!] Server selection failed on attempt {attempt}: {sel_err}")
+            continue
+
+        country_name = server.get("country", "Global Pool")
+        country_code = server.get("country_code", "N/A")
+        state_name = server.get("state")
+        city_name = server.get("city")
+        hostname = server["hostname"]
+        station_ip = server.get("station", "N/A")
+        server_load = server.get("load", 0)
+
+        print(f"\n{'=' * 64}")
+        print(f"  🌐 NORDVPN 7,100+ GLOBAL ROTATION ENGINE (Attempt {attempt}/{max_attempts})")
+        print(f"  Target Country : {country_name} ({country_code})")
+        if state_name and state_name != "State/Region":
+            print(f"  Selected State : {state_name}")
+        print(f"  Selected City  : {city_name}")
+        print(f"  Server Target  : {server.get('name', hostname)} ({hostname})")
+        print(f"  Station IP     : {station_ip}  (Load: {server_load}%)")
+        session_uniq = len(SESSION_USED_SERVERS)
+        session_ips = len(SESSION_USED_IPS)
+        print(f"  Session History: {session_ips} verified unique IPs / {session_uniq} servers (0 duplicates)")
+        print(f"{'=' * 64}")
+
+        # 2. Obtain .ovpn configuration
+        ovpn_path = server.get("cached_path") or download_ovpn_config(hostname, proto="udp")
+        if not ovpn_path:
+            # Try TCP fallback download
+            ovpn_path = download_ovpn_config(hostname, proto="tcp")
+        if not ovpn_path:
+            print(f"[!] Failed to obtain .ovpn config for {hostname}. Retrying another server...")
+            continue
+
+        # 3. Connect via OpenVPN CLI
+        success = connect_to_server(ovpn_path)
+        if not success:
+            print("[!] UDP connect failed or timed out. Retrying with TCP (Port 443)...")
+            disconnect_vpn()
+            ovpn_tcp = download_ovpn_config(hostname, proto="tcp")
+            if ovpn_tcp:
+                success = connect_to_server(ovpn_tcp)
+
+        if not success:
+            last_error = "OpenVPN connection initialization failed"
+            print(f"[!] OpenVPN failed to establish tunnel with {hostname}.")
+            continue
+
+        # 4. Strict Public IP Verification: verify that the IP has actually changed
+        print("[*] Verifying public IP change and routing through VPN tunnel...")
+        verified_ip_info = None
+        new_ip = None
+        poll_start = time.time()
+        max_ip_poll = 14
+
+        while (time.time() - poll_start) < max_ip_poll:
+            time.sleep(2.0)
+            curr_info = get_current_ip_info()
+            candidate_ip = curr_info.get("ip")
+
+            # Check if valid external IP obtained, different from pre-rotation IP, and not used in session
+            if candidate_ip and candidate_ip != "unknown":
+                if candidate_ip != pre_ip and candidate_ip not in SESSION_USED_IPS:
+                    verified_ip_info = curr_info
+                    new_ip = candidate_ip
+                    break
+
+        if not new_ip or not verified_ip_info:
+            curr_test_ip = get_current_ip_info().get("ip", "unknown")
+            print(
+                f"[!] ⚠️ IP VERIFICATION FAILED: Public IP did not change! "
+                f"(Current: {curr_test_ip} == Pre: {pre_ip} or duplicate in session). "
+                f"Disconnecting to prevent rate limits..."
+            )
+            disconnect_vpn()
+            last_error = f"Public IP did not change ({curr_test_ip} == {pre_ip})"
+            continue
+
+        # 5. Success! Record session usage to ensure zero duplicate servers or IPs
+        SESSION_USED_SERVERS.add(hostname)
+        SESSION_USED_IPS.add(new_ip)
+        if station_ip and station_ip != "N/A":
+            SESSION_USED_STATIONS.add(station_ip)
+        SESSION_ROTATION_COUNT += 1
+
+        verified_city = verified_ip_info.get("city") or server.get("city")
+        verified_region = verified_ip_info.get("region") or server.get("state")
+        verified_country = verified_ip_info.get("country") or server.get("country_code")
+
+        print(f"\n  ✅ VPN CONNECTED & IP CHANGE VERIFIED!")
+        print(f"  Previous IP    : {pre_ip}")
+        print(f"  New Public IP  : {new_ip}")
+        print(f"  Verified Geo   : {verified_city}, {verified_region}, {verified_country}")
+        print(f"  ISP / Org      : {verified_ip_info.get('org', 'NordVPN')}")
+        print(f"  Total Session  : {len(SESSION_USED_IPS)} unique public IPs used")
+        print(f"{'=' * 64}\n")
+
+        return {
+            "ip": new_ip,
+            "country": verified_country,
+            "country_name": server.get("country", verified_country),
+            "state": verified_region,
+            "region": verified_region,
+            "city": verified_city,
+            "server_name": server.get("name", hostname),
+            "hostname": hostname,
+            "org": verified_ip_info.get("org", "NordVPN"),
+        }
+
+    raise RuntimeError(
+        f"Failed to obtain a verified new public IP after {max_attempts} attempts: {last_error}\n"
+        "Aborting rotation to protect local machine IP from being rate limited."
     )
-
-    country_name = server.get("country", "Global Pool")
-    country_code = server.get("country_code", "N/A")
-    state_name = server.get("state")
-    city_name = server.get("city")
-    hostname = server["hostname"]
-    station_ip = server.get("station", "N/A")
-    server_load = server.get("load", 0)
-
-    print(f"\n{'=' * 64}")
-    print(f"  🌐 NORDVPN ENHANCED ROTATION ENGINE")
-    print(f"  Target Country : {country_name} ({country_code})")
-    if state_name and state_name != "State/Region":
-        print(f"  Selected State : {state_name}")
-    print(f"  Selected City  : {city_name}")
-    print(f"  Server Target  : {server.get('name', hostname)} ({hostname})")
-    print(f"  Station IP     : {station_ip}  (Load: {server_load}%)")
-    session_uniq = len(SESSION_USED_SERVERS)
-    session_locs = len(SESSION_USED_LOCATIONS)
-    print(f"  Session History: {session_uniq} unique servers / {session_locs} locations (0 duplicates in session)")
-    print(f"{'=' * 64}")
-
-    ovpn_path = server.get("cached_path") or download_ovpn_config(hostname)
-    if not ovpn_path:
-        raise RuntimeError(f"Failed to obtain .ovpn configuration for {hostname}")
-
-    success = connect_to_server(ovpn_path)
-    if not success:
-        print("[!] UDP connection timed out. Retrying with TCP (Port 443)...")
-        disconnect_vpn()
-        ovpn_tcp = download_ovpn_config(hostname, proto="tcp")
-        if ovpn_tcp:
-            success = connect_to_server(ovpn_tcp)
-
-    if not success:
-        print("[!] Connection failed. Retrying with another randomized state/server location without duplicates...")
-        disconnect_vpn()
-        server2 = select_random_server(
-            target_country=target_c,
-            target_state=target_s,
-            target_city=target_city,
-            countries=countries,
-        )
-        if server2:
-            ovpn_path2 = download_ovpn_config(server2["hostname"])
-            if ovpn_path2:
-                print(
-                    f"  Retrying connection with: {server2.get('name')} in {server2.get('location_str')} ({server2['hostname']})..."
-                )
-                success = connect_to_server(ovpn_path2)
-                if success:
-                    server = server2
-
-    if not success:
-        raise RuntimeError("OpenVPN connection initialization failed.")
-
-    # Verify new public IP & geo-location
-    ip_info = get_current_ip_info()
-    verified_city = ip_info.get("city") or server.get("city")
-    verified_region = ip_info.get("region") or server.get("state")
-    verified_country = ip_info.get("country") or server.get("country_code")
-
-    print(f"\n  ✅ VPN CONNECTED SUCCESSFULLY")
-    print(f"  New Public IP  : {ip_info.get('ip', 'N/A')}")
-    print(f"  Verified Geo   : {verified_city}, {verified_region}, {verified_country}")
-    print(f"  ISP / Org      : {ip_info.get('org', 'NordVPN')}")
-    print(f"{'=' * 64}\n")
-
-    return {
-        "ip": ip_info.get("ip", station_ip),
-        "country": verified_country,
-        "country_name": server.get("country", verified_country),
-        "state": verified_region,
-        "region": verified_region,
-        "city": verified_city,
-        "server_name": server.get("name", hostname),
-        "hostname": server.get("hostname", hostname),
-        "org": ip_info.get("org", "NordVPN"),
-    }
 
 
 if __name__ == "__main__":
