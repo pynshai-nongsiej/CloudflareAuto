@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Auto-Rotating 20-Worker Headless Runner & Dashboard for macOS with NordVPN CLI.
+"""Auto-Rotating 6-Worker Runner & Dashboard for macOS with NordVPN CLI.
 
 Features:
-  - 20 workers run completely headlessly in the background (no popup windows).
-  - 5 workers assigned to each of the 4 referral accounts.
+  - 6 workers running across the 2 referral accounts (3 for pn & 3 for dai).
+  - Headed Terminal.app windows or headless background.
   - Live console dashboard showing overall successes, failures, per-account stats,
     VPN IP, location, and real-time event feed.
-  - As soon as any worker hits a rate limit / 15-minute cooldown:
-    1. Kills all worker processes with `pkill`.
-    2. Randomly chooses a new location from 150+ NordVPN countries.
+  - As soon as batch completes or any worker hits a rate limit:
+    1. Kills all worker processes cleanly.
+    2. Randomly chooses a fresh location without duplicate in the same session.
     3. Reconnects via OpenVPN CLI and verifies the new IP.
-    4. Relaunches 20 fresh headless workers.
+    4. Relaunches 6 fresh workers.
 """
 
 import os
@@ -49,19 +49,19 @@ ACCOUNTS = [
 
 dashboard = RichDashboard(
     platform_name="macOS",
-    target_subtitle="Target Accounts: pn & dai (5 workers each)",
+    target_subtitle="Target Accounts: pn & dai (3 workers each)",
 )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="macOS 10-Worker Runner (pn & dai) with Live Dashboard & NordVPN Auto-Rotator"
+        description="macOS 6-Worker Runner (3 per refer: pn & dai) with Live Dashboard & NordVPN Auto-Rotator"
     )
     parser.add_argument(
         "--workers-per-link",
         type=int,
-        default=5,
-        help="Number of workers per link (default: 5, total 10 across pn & dai)",
+        default=3,
+        help="Number of workers per link (default: 3, total 6 across pn & dai)",
     )
     parser.add_argument(
         "--mode",
@@ -96,14 +96,14 @@ def parse_args():
     parser.add_argument(
         "--cooldown-min",
         type=int,
-        default=120,
-        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 120 / 2 min)",
+        default=45,
+        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 45 / 45s)",
     )
     parser.add_argument(
         "--cooldown-max",
         type=int,
-        default=180,
-        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 180 / 3 min)",
+        default=60,
+        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 60 / 1 min)",
     )
     return parser.parse_args()
 
@@ -290,9 +290,9 @@ def main():
                 except Exception:
                     ip_info = get_current_ip_info()
 
-            # 3. Launch 20 workers in visible Terminal windows
+            # 3. Launch workers in visible Terminal windows
             mode_desc = "Headed Terminal Windows" if not args.headless else "Headless Background"
-            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=f"Launching 20 Workers ({mode_desc})...")
+            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=f"Launching {total_workers} Workers ({mode_desc})...")
             launch_workers(
                 workers_per_link=args.workers_per_link,
                 mode=args.mode,
@@ -330,7 +330,7 @@ def main():
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
                     render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
 
-            # 5. Cleanly close terminals and apply random 2-3 minute cooldown before rotating
+            # 5. Cleanly close terminals and apply random 45s - 1 min cooldown before rotating
             close_all_terminals()
             clear_trigger_flag()
 

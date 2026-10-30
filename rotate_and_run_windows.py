@@ -110,14 +110,14 @@ def parse_args():
     parser.add_argument(
         "--cooldown-min",
         type=int,
-        default=120,
-        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 120 / 2 min)",
+        default=45,
+        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 45 / 45s)",
     )
     parser.add_argument(
         "--cooldown-max",
         type=int,
-        default=180,
-        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 180 / 3 min)",
+        default=60,
+        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 60 / 1 min)",
     )
     return parser.parse_args()
 
@@ -333,7 +333,7 @@ def main():
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
                     render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
 
-            # 5. Cleanly close terminals and apply random 2-3 minute cooldown before rotating
+            # 5. Cleanly close terminals and apply random 45s - 1 min cooldown before rotating
             close_all_terminals()
             clear_trigger_flag()
 

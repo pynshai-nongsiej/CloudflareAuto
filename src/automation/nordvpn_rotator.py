@@ -78,6 +78,23 @@ DEFAULT_PASS = "uwXH67Ynz64N3M85r9EuwQxa"
 RECENT_SERVERS: List[str] = []
 RECENT_LOCATIONS: List[str] = []
 
+# Session-level duplicate tracking: guarantees ZERO duplicate locations/servers in the same session
+SESSION_USED_SERVERS: set[str] = set()       # Hostnames e.g. 'us13946.nordvpn.com'
+SESSION_USED_LOCATIONS: set[str] = set()     # e.g. 'San Francisco, California, United States'
+SESSION_USED_COUNTRIES: set[str] = set()     # e.g. 'United States', 'Germany'
+SESSION_USED_STATIONS: set[str] = set()      # Station IPs
+SESSION_ROTATION_COUNT: int = 0
+
+
+def reset_session_history():
+    """Reset session duplicate tracking."""
+    global SESSION_ROTATION_COUNT
+    SESSION_USED_SERVERS.clear()
+    SESSION_USED_LOCATIONS.clear()
+    SESSION_USED_COUNTRIES.clear()
+    SESSION_USED_STATIONS.clear()
+    SESSION_ROTATION_COUNT = 0
+
 
 def ensure_auth_file():
     """Ensure the credentials file exists."""
@@ -210,7 +227,7 @@ def ensure_dns_healthy():
 
 
 def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | None:
-    """Find any locally cached .ovpn config matching the criteria or from the general pool."""
+    """Find any locally cached .ovpn config matching the criteria without duplicate in same session."""
     if not OVPN_CACHE_DIR.exists():
         return None
 
@@ -218,12 +235,21 @@ def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | 
     if not all_cached:
         return None
 
+    # Filter out cached configs already connected to in this session
+    fresh_cached = [
+        f for f in all_cached
+        if f.name.split(".udp.")[0].split(".tcp.")[0] not in SESSION_USED_SERVERS
+    ]
+    pool = fresh_cached if fresh_cached else all_cached
+
     if country_code:
         prefix = country_code.lower()
-        matches = [f for f in all_cached if f.name.lower().startswith(prefix)]
+        matches = [f for f in pool if f.name.lower().startswith(prefix)]
         if matches:
             chosen = random.choice(matches)
             hostname = chosen.name.split(".udp.")[0].split(".tcp.")[0]
+            SESSION_USED_SERVERS.add(hostname)
+            SESSION_USED_COUNTRIES.add(prefix.upper())
             return {
                 "hostname": hostname,
                 "name": f"Cached {prefix.upper()} ({hostname})",
@@ -233,13 +259,15 @@ def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | 
                 "city": "Cached",
             }
 
-    chosen = random.choice(all_cached)
+    chosen = random.choice(pool)
     hostname = chosen.name.split(".udp.")[0].split(".tcp.")[0]
+    SESSION_USED_SERVERS.add(hostname)
+    prefix = "".join([c for c in chosen.name.split(".")[0] if c.isalpha()]).upper()
     return {
         "hostname": hostname,
         "name": f"Cached Server ({hostname})",
         "cached_path": chosen,
-        "country": "Cache",
+        "country": prefix or "Cache",
         "state": "Cached",
         "city": "Cached",
     }
@@ -288,26 +316,38 @@ def select_random_server(
     target_city: Optional[str] = None,
     countries: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Select a randomized server, switching countries, states, and cities.
+    """Select a randomized server, switching countries, states, and cities without session duplicates.
 
     NordVPN has over 7,100+ servers across 225+ locations in 110+ countries.
-    This queries servers at a randomized offset and selects a random city/state.
+    Guarantees no duplicate servers or locations are reused in the same session.
     """
+    global SESSION_ROTATION_COUNT
     if not countries:
         countries = get_all_available_countries()
 
-    # If no country target specified, pick a random country
+    # 1. Country Selection without duplicates in the same session
     chosen_country = target_country
     if not chosen_country:
-        # Avoid picking the exact same country if multiple are available
-        available_countries = countries
-        if len(RECENT_LOCATIONS) > 0 and len(countries) > 10:
-            last_country = RECENT_LOCATIONS[-1].split(", ")[-1]
-            non_recent = [c for c in countries if c.get("name") != last_country]
-            if non_recent:
-                available_countries = non_recent
+        # Avoid countries already used in this session to prevent duplicate countries
+        fresh_countries = [
+            c for c in countries
+            if c.get("name") not in SESSION_USED_COUNTRIES
+            and c.get("code") not in SESSION_USED_COUNTRIES
+        ]
+        # If all countries in the pool have been visited in this session, reset session country history
+        if not fresh_countries:
+            print(f"  [i] All {len(countries)} countries visited in this session! Cycling session country pool.")
+            SESSION_USED_COUNTRIES.clear()
+            fresh_countries = countries
 
-        chosen_country = random.choice(available_countries)
+        # Avoid immediate last country if alternatives exist
+        if len(RECENT_LOCATIONS) > 0 and len(fresh_countries) > 1:
+            last_country = RECENT_LOCATIONS[-1].split(", ")[-1]
+            non_recent = [c for c in fresh_countries if c.get("name") != last_country]
+            if non_recent:
+                fresh_countries = non_recent
+
+        chosen_country = random.choice(fresh_countries)
 
     country_id = chosen_country.get("id", 228)
     country_name = chosen_country.get("name", "United States")
@@ -338,16 +378,23 @@ def select_random_server(
     # If batch query returned empty, try recommendations API
     if not servers_batch:
         try:
-            rec_url = f"https://api.nordvpn.com/v1/servers/recommendations?filters[country_id]={country_id}&limit=15"
+            rec_url = f"https://api.nordvpn.com/v1/servers/recommendations?filters[country_id]={country_id}&limit=25"
             rec_req = urllib.request.Request(rec_url, headers={"User-Agent": "curl/7.68.0"})
             with urllib.request.urlopen(rec_req, timeout=8) as rec_resp:
                 servers_batch = json.loads(rec_resp.read().decode())
         except Exception:
             pass
 
-    # Process and group discovered servers by (city, state)
+    # Process and group discovered servers by (city, state), skipping duplicates in the same session
     locations_map: Dict[Tuple[str, Optional[str]], List[Dict[str, Any]]] = {}
     for s in servers_batch:
+        hostname = s.get("hostname", "")
+        station = s.get("station", "")
+
+        # Skip any server hostname or station already connected to in this session
+        if hostname in SESSION_USED_SERVERS or (station and station in SESSION_USED_STATIONS):
+            continue
+
         loc = s.get("locations", [{}])[0]
         c_dict = loc.get("country", {})
         city_name = c_dict.get("city", {}).get("name", "Unknown")
@@ -363,27 +410,38 @@ def select_random_server(
         key = (city_name, state_name)
         locations_map.setdefault(key, []).append(s)
 
-    # Pick a random location from the available cities/states
+    # Pick a random location from the available cities/states without duplicate in session
     if locations_map:
-        # Filter out very recently used location if alternatives exist
         loc_keys = list(locations_map.keys())
-        fresh_keys = [
-            k for k in loc_keys if f"{k[0]}, {k[1]}" not in RECENT_LOCATIONS[-3:]
-        ]
-        chosen_loc = random.choice(fresh_keys if fresh_keys else loc_keys)
-        candidate_servers = locations_map[chosen_loc]
 
-        # Filter out very recently used servers
-        fresh_servers = [
-            s for s in candidate_servers if s.get("hostname") not in RECENT_SERVERS[-5:]
+        # Prefer cities/locations not yet visited in this session
+        fresh_loc_keys = [
+            k for k in loc_keys
+            if f"{k[0]}, {k[1]}, {country_name}" not in SESSION_USED_LOCATIONS
+            and f"{k[0]}, {country_name}" not in SESSION_USED_LOCATIONS
         ]
-        chosen_s = random.choice(fresh_servers if fresh_servers else candidate_servers)
+        chosen_loc_pool = fresh_loc_keys if fresh_loc_keys else loc_keys
+        chosen_loc = random.choice(chosen_loc_pool)
+
+        candidate_servers = locations_map[chosen_loc]
+        # candidate_servers already filtered against SESSION_USED_SERVERS
+        chosen_s = random.choice(candidate_servers)
 
         city_val, state_val = chosen_loc
         loc_str = f"{city_val}, {state_val}" if state_val else city_val
+        full_loc_str = f"{loc_str}, {country_name}"
 
-        # Record history
-        RECENT_LOCATIONS.append(f"{loc_str}, {country_name}")
+        # Record to session history
+        SESSION_ROTATION_COUNT += 1
+        SESSION_USED_COUNTRIES.add(country_name)
+        SESSION_USED_COUNTRIES.add(country_code)
+        SESSION_USED_LOCATIONS.add(full_loc_str)
+        if chosen_s.get("hostname"):
+            SESSION_USED_SERVERS.add(chosen_s["hostname"])
+        if chosen_s.get("station") and chosen_s["station"] != "N/A":
+            SESSION_USED_STATIONS.add(chosen_s["station"])
+
+        RECENT_LOCATIONS.append(full_loc_str)
         if len(RECENT_LOCATIONS) > 20:
             RECENT_LOCATIONS.pop(0)
         RECENT_SERVERS.append(chosen_s.get("hostname", ""))
@@ -401,11 +459,14 @@ def select_random_server(
             "state": state_val or "State/Region",
             "city": city_val,
             "location_str": loc_str,
+            "session_count": SESSION_ROTATION_COUNT,
         }
 
-    # Fallback to verified fallback list matching country or state
+    # Fallback to verified fallback list matching country or state without session duplicate
     matching_fallbacks = [
-        f for f in FALLBACK_SERVERS if f["id"] == country_id or f["country_code"] == country_code
+        f for f in FALLBACK_SERVERS
+        if (f["id"] == country_id or f["country_code"] == country_code)
+        and f["hostname"] not in SESSION_USED_SERVERS
     ]
     if target_state:
         state_matches = [
@@ -416,6 +477,14 @@ def select_random_server(
 
     if matching_fallbacks:
         fb = random.choice(matching_fallbacks)
+        SESSION_ROTATION_COUNT += 1
+        SESSION_USED_COUNTRIES.add(fb["country"])
+        SESSION_USED_COUNTRIES.add(fb["country_code"])
+        loc_str = f"{fb.get('city')}, {fb.get('state')}"
+        SESSION_USED_LOCATIONS.add(f"{loc_str}, {fb['country']}")
+        SESSION_USED_SERVERS.add(fb["hostname"])
+        if fb.get("station") and fb["station"] != "N/A":
+            SESSION_USED_STATIONS.add(fb["station"])
         return {
             "id": fb["id"],
             "name": fb["name"],
@@ -426,16 +495,26 @@ def select_random_server(
             "country_code": fb["country_code"],
             "state": fb.get("state", "State"),
             "city": fb.get("city", "City"),
-            "location_str": f"{fb.get('city')}, {fb.get('state')}",
+            "location_str": loc_str,
+            "session_count": SESSION_ROTATION_COUNT,
         }
 
-    # Final fallback to any cached config
+    # Fallback to any cached config avoiding session duplicates
     cached = find_cached_ovpn(country_code)
     if cached:
         return cached
 
-    # Random fallback from full list
-    fb = random.choice(FALLBACK_SERVERS)
+    # Random fallback from full list avoiding session duplicates
+    unused_fallbacks = [f for f in FALLBACK_SERVERS if f["hostname"] not in SESSION_USED_SERVERS]
+    fb = random.choice(unused_fallbacks if unused_fallbacks else FALLBACK_SERVERS)
+    SESSION_ROTATION_COUNT += 1
+    SESSION_USED_COUNTRIES.add(fb["country"])
+    SESSION_USED_COUNTRIES.add(fb["country_code"])
+    loc_str = f"{fb.get('city')}, {fb.get('state')}"
+    SESSION_USED_LOCATIONS.add(f"{loc_str}, {fb['country']}")
+    SESSION_USED_SERVERS.add(fb["hostname"])
+    if fb.get("station") and fb["station"] != "N/A":
+        SESSION_USED_STATIONS.add(fb["station"])
     return {
         "id": fb["id"],
         "name": fb["name"],
@@ -446,7 +525,8 @@ def select_random_server(
         "country_code": fb["country_code"],
         "state": fb.get("state", "State"),
         "city": fb.get("city", "City"),
-        "location_str": f"{fb.get('city')}, {fb.get('state')}",
+        "location_str": loc_str,
+        "session_count": SESSION_ROTATION_COUNT,
     }
 
 
@@ -742,7 +822,9 @@ def rotate_vpn(target_location: Optional[str] = None) -> dict:
     print(f"  Selected City  : {city_name}")
     print(f"  Server Target  : {server.get('name', hostname)} ({hostname})")
     print(f"  Station IP     : {station_ip}  (Load: {server_load}%)")
-    print(f"  Network Scope  : Over 7,100+ servers across 225+ locations in 110+ countries")
+    session_uniq = len(SESSION_USED_SERVERS)
+    session_locs = len(SESSION_USED_LOCATIONS)
+    print(f"  Session History: {session_uniq} unique servers / {session_locs} locations (0 duplicates in session)")
     print(f"{'=' * 64}")
 
     ovpn_path = server.get("cached_path") or download_ovpn_config(hostname)
@@ -758,9 +840,14 @@ def rotate_vpn(target_location: Optional[str] = None) -> dict:
             success = connect_to_server(ovpn_tcp)
 
     if not success:
-        print("[!] Connection failed. Retrying with another randomized state/server location...")
+        print("[!] Connection failed. Retrying with another randomized state/server location without duplicates...")
         disconnect_vpn()
-        server2 = select_random_server(countries=countries)
+        server2 = select_random_server(
+            target_country=target_c,
+            target_state=target_s,
+            target_city=target_city,
+            countries=countries,
+        )
         if server2:
             ovpn_path2 = download_ovpn_config(server2["hostname"])
             if ovpn_path2:
