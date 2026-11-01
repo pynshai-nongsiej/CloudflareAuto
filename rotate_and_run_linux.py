@@ -280,6 +280,19 @@ def main():
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     clear_trigger_flag()
+
+    # Ensure administrator (sudo) privileges are active for OpenVPN before launching dashboard
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        if subprocess.run(["sudo", "-n", "true"], stderr=subprocess.DEVNULL).returncode != 0:
+            print("================================================================")
+            print("  🔑 OpenVPN requires administrator (sudo) privileges on Linux.")
+            print("  Please enter your sudo password:")
+            print("================================================================")
+            res = subprocess.run(["sudo", "-v"])
+            if res.returncode != 0:
+                print("❌ ERROR: Sudo authentication failed. Exiting.")
+                sys.exit(1)
+
     dashboard.start()
 
     ip_info = {"ip": "Connecting...", "country": "??", "city": "...", "org": "NordVPN"}

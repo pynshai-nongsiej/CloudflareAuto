@@ -116,17 +116,19 @@ def get_platform_partition() -> Tuple[int, str]:
 PLATFORM_ID, PLATFORM_NAME = get_platform_partition()
 
 
-def is_server_for_platform(server_id: Any, hostname: str, platform_id: int) -> bool:
-    """Strictly verify if server belongs exclusively to this platform's non-overlapping partition."""
-    try:
-        if server_id is not None:
-            sid = int(server_id)
-            return (sid % 3) == platform_id
-    except (ValueError, TypeError):
-        pass
+def is_server_for_platform(hostname: str, platform_id: int) -> bool:
+    """Strictly partition servers across platforms using deterministic MD5 hostname hash.
 
-    # Deterministic fallback by hostname hash
-    h = int(hashlib.md5(hostname.encode("utf-8")).hexdigest(), 16)
+    macOS: partition 0
+    Linux: partition 1
+    Windows: partition 2
+
+    This guarantees 100% disjoint server pools with zero tangling or overlap.
+    """
+    if not hostname:
+        return False
+    clean_host = hostname.split(".udp.")[0].split(".tcp.")[0].lower().strip()
+    h = int(hashlib.md5(clean_host.encode("utf-8")).hexdigest(), 16)
     return (h % 3) == platform_id
 
 
@@ -411,7 +413,7 @@ def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | 
     # Strictly filter for this platform partition to ensure Mac, Linux, and Windows never tangle
     platform_pool = [
         f for f in pool
-        if is_server_for_platform(None, f.name.split(".udp.")[0].split(".tcp.")[0], PLATFORM_ID)
+        if is_server_for_platform(f.name.split(".udp.")[0].split(".tcp.")[0], PLATFORM_ID)
     ]
     pool = platform_pool if platform_pool else pool
 
@@ -528,11 +530,9 @@ def select_random_server(
 
     # Case B: Global pool selection (no target) - Non-overlapping platform partitions across 7,100+ servers
     else:
-        # Divide the ~7,065 active OpenVPN pool into 3 disjoint platform slices (~2,350 servers each)
-        # macOS: [0, 2340], Linux: [2341, 4680], Windows: [4681, 7020]
-        slice_min = PLATFORM_ID * 2340
-        slice_max = min(7020, (PLATFORM_ID + 1) * 2340)
-        offset = random.randint(slice_min, max(slice_min, slice_max - batch_size))
+        # Uniform random offset across the entire 7,100+ global pool
+        max_global_offset = min(7020, max(0, total_pool_servers - batch_size))
+        offset = random.randint(0, max_global_offset) if max_global_offset > 0 else 0
 
         url = (
             f"https://api.nordvpn.com/v1/servers"
@@ -581,7 +581,7 @@ def select_random_server(
             continue
 
         # Mathematical guarantee: Mac (% 3 == 0), Linux (% 3 == 1), Windows (% 3 == 2)
-        if not is_server_for_platform(s.get("id"), hostname, PLATFORM_ID):
+        if not is_server_for_platform(hostname, PLATFORM_ID):
             continue
 
         loc = s.get("locations", [{}])[0]
@@ -643,10 +643,10 @@ def select_random_server(
     unused_fallbacks = [
         f for f in FALLBACK_SERVERS
         if f["hostname"] not in SESSION_USED_SERVERS
-        and is_server_for_platform(f["id"], f["hostname"], PLATFORM_ID)
+        and is_server_for_platform(f["hostname"], PLATFORM_ID)
     ]
     candidate_fb = unused_fallbacks if unused_fallbacks else [
-        f for f in FALLBACK_SERVERS if is_server_for_platform(f["id"], f["hostname"], PLATFORM_ID)
+        f for f in FALLBACK_SERVERS if is_server_for_platform(f["hostname"], PLATFORM_ID)
     ] or FALLBACK_SERVERS
     fb = random.choice(candidate_fb)
     loc_str = f"{fb.get('city')}, {fb.get('state')}, {fb['country']}"
@@ -707,12 +707,28 @@ def disconnect_vpn():
     else:
         # macOS or Linux
         is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        # Send SIGTERM first so OpenVPN can restore routes and close utun/tun devices cleanly
+        term_cmd = (
+            ["pkill", "-15", "-f", "openvpn"]
+            if is_root
+            else ["sudo", "-n", "pkill", "-15", "-f", "openvpn"]
+        )
+        subprocess.run(term_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.4)
+
         pkill_cmd = (
             ["pkill", "-9", "-f", "openvpn"]
             if is_root
             else ["sudo", "-n", "pkill", "-9", "-f", "openvpn"]
         )
         subprocess.run(pkill_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        if SYSTEM == "Darwin":
+            route_cmd1 = ["route", "delete", "0.0.0.0/1"] if is_root else ["sudo", "-n", "route", "delete", "0.0.0.0/1"]
+            route_cmd2 = ["route", "delete", "128.0.0.0/1"] if is_root else ["sudo", "-n", "route", "delete", "128.0.0.0/1"]
+            subprocess.run(route_cmd1, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(route_cmd2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         if Path("/tmp/resolv.conf.backup").exists():
             restore_cmd = (
                 ["mv", "/tmp/resolv.conf.backup", "/etc/resolv.conf"]
@@ -720,7 +736,7 @@ def disconnect_vpn():
                 else ["sudo", "-n", "mv", "/tmp/resolv.conf.backup", "/etc/resolv.conf"]
             )
             subprocess.run(restore_cmd, stderr=subprocess.DEVNULL)
-    time.sleep(1.0)
+    time.sleep(0.8)
 
 
 def get_current_ip_info() -> dict:
@@ -929,9 +945,10 @@ def connect_to_server(ovpn_path: Path) -> bool:
             "--verb", "3",
             "--daemon",
         ])
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode != 0:
-            print(f"[!] OpenVPN launch exited with return code {res.returncode}")
+            err_msg = res.stderr.strip() or res.stdout.strip()
+            print(f"[!] OpenVPN launch exited with return code {res.returncode}: {err_msg}")
             return False
 
     # Wait up to 18 seconds for connection initialization
