@@ -132,17 +132,10 @@ def close_all_terminals():
 
 
 def clear_trigger_flag():
-    """Remove rate limit trigger file and reset OTP burst gate."""
+    """Remove rate limit trigger file."""
     try:
         if TRIGGER_FLAG.exists():
             TRIGGER_FLAG.unlink()
-    except Exception:
-        pass
-    try:
-        import tempfile
-        gate_file = Path(tempfile.gettempdir()) / "tenbox_otp_gate.json"
-        if gate_file.exists():
-            gate_file.unlink()
     except Exception:
         pass
 

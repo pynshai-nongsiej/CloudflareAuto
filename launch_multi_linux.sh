@@ -443,13 +443,6 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
-# Initial worker startup stagger to spread browser launches and avoid burst requests on same IP
-INITIAL_STAGGER=$(( ${i} * 4 ))
-if [ "\$INITIAL_STAGGER" -gt 0 ]; then
-    echo "[${LABEL}] Staggering start: waiting \${INITIAL_STAGGER}s to avoid burst traffic on new IP..."
-    sleep "\$INITIAL_STAGGER"
-fi
-
 while true; do
     "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
     EXIT_CODE=\$?
