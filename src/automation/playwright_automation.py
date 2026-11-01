@@ -12,8 +12,6 @@ import random
 import re
 import sys
 import time
-import tempfile
-from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -423,7 +421,6 @@ async def _handle_otp_maintenance_resend(
     email_address: str,
     log: Callable,
     rate_limit_intercepted: Optional[list] = None,
-    worker_id: Optional[str] = None,
 ) -> bool:
     """Handles 'otp login maintenance' error on OTP screen:
 
@@ -603,7 +600,6 @@ async def register_and_verify(
     referrer: Optional[str] = "random",
     save_screenshots: bool = False,
     proxy: Optional[str] = None,
-    worker_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
     Screenshots are disabled by default and cleaned up automatically to avoid clogging storage.
@@ -612,8 +608,6 @@ async def register_and_verify(
         dict with success status, email, otp, final URL, cookies, referrer, and storage data.
     """
     url = target_url or TARGET_URL
-    worker_label = worker_id or os.environ.get("WORKER_ID", "Worker")
-
     def log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -841,7 +835,7 @@ async def register_and_verify(
             log("[*] Clicking Send OTP...")
 
             # Realistic pause before submitting email (like reviewing typed email)
-            await asyncio.sleep(random.uniform(0.8, 1.6))
+            await asyncio.sleep(random.uniform(1.2, 2.5))
             await send_btn.click()
 
             # ── Step 6: Wait for OTP page ──
@@ -927,7 +921,6 @@ async def register_and_verify(
                     email_address=email_address,
                     log=log,
                     rate_limit_intercepted=rate_limit_intercepted,
-                    worker_id=worker_label,
                 )
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
@@ -969,7 +962,6 @@ async def register_and_verify(
                         email_address=email_address,
                         log=log,
                         rate_limit_intercepted=rate_limit_intercepted,
-                        worker_id=worker_label,
                     )
                     if resend_ok:
                         # Reset wait timer so the new OTP has full time to arrive
@@ -1023,7 +1015,6 @@ async def register_and_verify(
                             email_address=email_address,
                             log=log,
                             rate_limit_intercepted=rate_limit_intercepted,
-                            worker_id=worker_label,
                         )
                         if resend_ok:
                             log(f"[*] Polling TempMail.Plus inbox for new OTP code ({email_address})...")
