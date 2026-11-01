@@ -276,6 +276,7 @@ async def run_direct_single(args) -> dict:
         target_url=getattr(args, "target_url", None),
         referrer=getattr(args, "referrer", "random"),
         proxy=getattr(args, "proxy", None),
+        worker_id=getattr(args, "worker_id", None),
     )
 
     return result

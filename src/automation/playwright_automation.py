@@ -12,6 +12,8 @@ import random
 import re
 import sys
 import time
+import tempfile
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -416,18 +418,69 @@ async def _click_change_email(page: Page, log: Callable) -> bool:
     return False
 
 
+async def _acquire_otp_gate(worker_label: str = "Worker", min_interval: float = 8.5, log: Optional[Callable] = None):
+    """Ensure at least min_interval seconds between Send OTP clicks across all workers on this machine/IP.
+    
+    Prevents HTTP 429 Too Many Requests from https://api.tenbox.app/api/v1/auth/send-otp
+    caused by multiple concurrent workers burst-requesting OTPs on the same VPN IP.
+    """
+    gate_state_file = Path(tempfile.gettempdir()) / "tenbox_otp_gate.json"
+    gate_lock_file = Path(tempfile.gettempdir()) / "tenbox_otp_gate.lock"
+
+    while True:
+        acquired = False
+        wait_time = 0.0
+        try:
+            import filelock
+            lock_ctx = filelock.FileLock(str(gate_lock_file), timeout=45)
+        except Exception:
+            class _DummyLock:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            lock_ctx = _DummyLock()
+
+        try:
+            with lock_ctx:
+                last_ts = 0.0
+                if gate_state_file.exists():
+                    try:
+                        data = json.loads(gate_state_file.read_text())
+                        last_ts = float(data.get("last_send_ts", 0.0))
+                    except Exception:
+                        last_ts = 0.0
+
+                now = time.time()
+                elapsed = now - last_ts
+                if elapsed >= min_interval:
+                    gate_state_file.write_text(json.dumps({"last_send_ts": now, "worker": worker_label}))
+                    acquired = True
+                else:
+                    wait_time = (min_interval - elapsed) + random.uniform(0.5, 1.8)
+        except Exception:
+            await asyncio.sleep(random.uniform(1.0, 2.5))
+            return
+
+        if acquired:
+            return
+
+        if log:
+            log(f"[*] ⏱️ Anti-Rate-Limit OTP Gate: spacing requests ({wait_time:.1f}s stagger for {worker_label})...")
+        await asyncio.sleep(wait_time)
+
+
 async def _handle_otp_maintenance_resend(
     page: Page,
     email_address: str,
     log: Callable,
     rate_limit_intercepted: Optional[list] = None,
+    worker_id: Optional[str] = None,
 ) -> bool:
     """Handles 'otp login maintenance' error on OTP screen:
 
     1. Clicks 'Change Email'.
     2. Waits for email input on the login screen.
     3. Confirms/re-fills the exact same email address.
-    4. Clicks 'Send OTP' again.
+    4. Clicks 'Send OTP' again (gated to prevent bursting).
     5. Waits for OTP verification screen to reload.
     """
     log(f"[*] 🔄 Triggering OTP Maintenance Recovery: Resending OTP to same email ({email_address})...")
@@ -476,9 +529,10 @@ async def _handle_otp_maintenance_resend(
 
     await asyncio.sleep(random.uniform(0.5, 1.2))
 
-    # Step 4: Click Send OTP button again
+    # Step 4: Click Send OTP button again (gated to prevent bursting)
     try:
         send_btn = await _find_send_otp_button(page)
+        await _acquire_otp_gate(worker_label=worker_id or "Worker", min_interval=8.5, log=log)
         log("[*] Clicking 'Send OTP' button again...")
         await send_btn.click()
     except Exception as e:
@@ -600,6 +654,7 @@ async def register_and_verify(
     referrer: Optional[str] = "random",
     save_screenshots: bool = False,
     proxy: Optional[str] = None,
+    worker_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
     Screenshots are disabled by default and cleaned up automatically to avoid clogging storage.
@@ -608,6 +663,8 @@ async def register_and_verify(
         dict with success status, email, otp, final URL, cookies, referrer, and storage data.
     """
     url = target_url or TARGET_URL
+    worker_label = worker_id or os.environ.get("WORKER_ID", "Worker")
+
     def log(msg: str):
         if log_fn:
             log_fn(msg)
@@ -832,10 +889,14 @@ async def register_and_verify(
             # ── Step 5: Click Send OTP ──
             log("[*] Looking for Send OTP button...")
             send_btn = await _find_send_otp_button(page)
+
+            # Anti-burst OTP gate: Stagger OTP requests across workers on this IP (8.5-10s interval)
+            await _acquire_otp_gate(worker_label=worker_label, min_interval=8.5, log=log)
+
             log("[*] Clicking Send OTP...")
 
             # Realistic pause before submitting email (like reviewing typed email)
-            await asyncio.sleep(random.uniform(1.2, 2.5))
+            await asyncio.sleep(random.uniform(0.8, 1.6))
             await send_btn.click()
 
             # ── Step 6: Wait for OTP page ──
@@ -921,6 +982,7 @@ async def register_and_verify(
                     email_address=email_address,
                     log=log,
                     rate_limit_intercepted=rate_limit_intercepted,
+                    worker_id=worker_label,
                 )
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
@@ -962,6 +1024,7 @@ async def register_and_verify(
                         email_address=email_address,
                         log=log,
                         rate_limit_intercepted=rate_limit_intercepted,
+                        worker_id=worker_label,
                     )
                     if resend_ok:
                         # Reset wait timer so the new OTP has full time to arrive
@@ -1015,6 +1078,7 @@ async def register_and_verify(
                             email_address=email_address,
                             log=log,
                             rate_limit_intercepted=rate_limit_intercepted,
+                            worker_id=worker_label,
                         )
                         if resend_ok:
                             log(f"[*] Polling TempMail.Plus inbox for new OTP code ({email_address})...")
