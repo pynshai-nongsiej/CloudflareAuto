@@ -105,14 +105,14 @@ def parse_args():
     parser.add_argument(
         "--cooldown-min",
         type=int,
-        default=45,
-        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 45 / 45s)",
+        default=0,
+        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 0)",
     )
     parser.add_argument(
         "--cooldown-max",
         type=int,
-        default=60,
-        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 60 / 1 min)",
+        default=0,
+        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 0)",
     )
     return parser.parse_args()
 
@@ -342,19 +342,19 @@ def main():
                         render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
                         continue
                     else:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Entering cooldown...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Rotating immediately...")
                         break
                 else:
                     if active == 0 and batch_elapsed > 30:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Entering cooldown...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Rotating immediately...")
                         break
                     elif batch_elapsed >= max_batch_time:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Entering cooldown...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Rotating immediately...")
                         break
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
                     render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
 
-            # 5. Cleanly close terminals and apply random 45s - 1 min cooldown before rotating
+            # 5. Cleanly close terminals and rotate immediately without cooldown
             close_all_terminals()
             clear_trigger_flag()
 

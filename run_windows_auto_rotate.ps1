@@ -11,8 +11,8 @@ param(
     [switch]$Headless,
     [switch]$BrowserHeaded,
     [string]$Country = "",
-    [int]$CooldownMin = 45,
-    [int]$CooldownMax = 60
+    [int]$CooldownMin = 0,
+    [int]$CooldownMax = 0
 )
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
