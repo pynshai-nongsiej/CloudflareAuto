@@ -8,11 +8,15 @@ All sessions use a fully randomized browser fingerprint for anti-detection.
 
 import asyncio
 import json
+import os
 import random
 import re
 import sys
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 from .tempmail_client import TempMailClient
@@ -24,6 +28,85 @@ from .fingerprint import (
     get_launch_args,
     BrowserFingerprint,
 )
+
+# Load .env if present
+try:
+    from dotenv import load_dotenv
+    _env_file = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+except ImportError:
+    pass
+
+
+def resolve_playwright_proxy(
+    proxy_arg: Optional[str] = None,
+    worker_id: Optional[str] = None,
+    log_fn: Optional[Callable[[str], None]] = None,
+) -> Optional[Dict[str, str]]:
+    """Resolve Playwright proxy configuration dictionary with automatic residential rotation.
+
+    Hierarchy:
+      1. Explicit CLI argument --proxy
+      2. Environment variable PROXY_SERVER (e.g. http://user:pass@host:port or http://host:port)
+      3. Environment variables PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS
+      4. Default to DataImpulse credentials if configured.
+    """
+    raw_proxy = proxy_arg or os.environ.get("PROXY_SERVER")
+    username = os.environ.get("PROXY_USER")
+    password = os.environ.get("PROXY_PASS")
+    server = None
+
+    if raw_proxy:
+        if "://" not in raw_proxy:
+            raw_proxy = f"http://{raw_proxy}"
+        parsed = urlparse(raw_proxy)
+        if parsed.scheme and parsed.hostname:
+            port_part = f":{parsed.port}" if parsed.port else ""
+            server = f"{parsed.scheme}://{parsed.hostname}{port_part}"
+            if parsed.username:
+                username = parsed.username
+            if parsed.password:
+                password = parsed.password
+        else:
+            server = raw_proxy
+    elif os.environ.get("PROXY_HOST"):
+        host = os.environ.get("PROXY_HOST")
+        port = os.environ.get("PROXY_PORT", "823")
+        server = f"http://{host}:{port}"
+    else:
+        # Default DataImpulse credentials
+        default_host = os.environ.get("DATAIMPULSE_HOST", "gw.dataimpulse.com")
+        default_port = os.environ.get("DATAIMPULSE_PORT", "823")
+        default_user = os.environ.get("DATAIMPULSE_LOGIN", "2490cf77ff2b92918641")
+        default_pass = os.environ.get("DATAIMPULSE_PASS", "6b184f3f8c527d2e")
+        if default_user and default_pass:
+            server = f"http://{default_host}:{default_port}"
+            username = default_user
+            password = default_pass
+
+    if not server:
+        return None
+
+    # Auto-rotate sticky residential session per registration if using DataImpulse
+    if username and "dataimpulse" in server.lower() and "__sessid." not in username:
+        wid = worker_id or os.environ.get("WORKER_ID") or "W01"
+        clean_wid = "".join(c for c in wid if c.isalnum()) or "W"
+        token = uuid.uuid4().hex[:6]
+        ttl = os.environ.get("PROXY_SESSION_TTL", "10")
+        username = f"{username}__sessid.{clean_wid}_{token};sessttl.{ttl}"
+
+    proxy_cfg = {"server": server}
+    if username:
+        proxy_cfg["username"] = username
+    if password:
+        proxy_cfg["password"] = password
+
+    masked_user = f"{username.split('__')[0][:6]}..." if username else ""
+    sess_tag = f" [Session: {username.split('__sessid.')[1].split(';')[0]}]" if "__sessid." in (username or "") else ""
+    if log_fn:
+        log_fn(f"[*] 🛡️ Routing browser traffic via Proxy: {server} (User: {masked_user}){sess_tag}")
+    return proxy_cfg
 
 TARGET_URL = (
     "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"
@@ -600,6 +683,7 @@ async def register_and_verify(
     referrer: Optional[str] = "random",
     save_screenshots: bool = False,
     proxy: Optional[str] = None,
+    worker_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Automates registration and OTP verification on TenBox Websurfer.
     Screenshots are disabled by default and cleaned up automatically to avoid clogging storage.
@@ -630,9 +714,8 @@ async def register_and_verify(
     log(f"    TZ={fp.timezone} | Viewport={fp.viewport_width}x{fp.viewport_height} | "
         f"Scale={fp.device_scale_factor}")
 
-    # Check for proxy server (explicit CLI argument or PROXY_SERVER env var)
-    import os
-    proxy_server = proxy or os.environ.get("PROXY_SERVER")
+    # Check for proxy configuration (explicit CLI argument, environment, or DataImpulse)
+    proxy_config = resolve_playwright_proxy(proxy, worker_id, log)
 
     # ── Step 1: Create temporary email (TempMail.Plus random name & domain) ──
     log("[*] Creating temporary email on TempMail.Plus...")
@@ -647,14 +730,15 @@ async def register_and_verify(
             "headless": not headed,
             "args": get_launch_args(),
         }
-        if proxy_server:
-            log(f"[*] 🛡️ Routing browser traffic via Proxy/VPN: {proxy_server}")
-            launch_kwargs["proxy"] = {"server": proxy_server}
+        if proxy_config:
+            launch_kwargs["proxy"] = proxy_config
 
         log(f"[*] Launching Chromium (headed={headed}) with stealth fingerprint...")
         browser = await p.chromium.launch(**launch_kwargs)
 
         context_opts = get_playwright_context_options(fp)
+        if proxy_config:
+            context_opts["proxy"] = proxy_config
         if ref_info:
             extra_h = context_opts.get("extra_http_headers", {})
             extra_h["Sec-Fetch-Site"] = "cross-site"

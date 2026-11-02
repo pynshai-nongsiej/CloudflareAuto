@@ -429,6 +429,9 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
 
     cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
+export PYTHONUNBUFFERED=1
+export WORKER_ID="${LABEL}"
+
 printf '\033]0;${LABEL}\007'
 cd "${PROJECT_DIR}"
 

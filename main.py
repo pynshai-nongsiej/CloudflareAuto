@@ -14,6 +14,7 @@ Run modes:
 import argparse
 import asyncio
 import json
+import os
 import random
 import sys
 import time
@@ -276,6 +277,7 @@ async def run_direct_single(args) -> dict:
         target_url=getattr(args, "target_url", None),
         referrer=getattr(args, "referrer", "random"),
         proxy=getattr(args, "proxy", None),
+        worker_id=getattr(args, "worker_id", None),
     )
 
     return result
@@ -358,6 +360,23 @@ async def run_loop(args):
             except RateLimitError as rle:
                 failures += 1
                 log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
+
+                # If proxy mode is active, rotate to fresh residential IP immediately
+                proxy_active = bool(
+                    getattr(args, "proxy", None)
+                    or os.environ.get("PROXY_SERVER")
+                    or os.environ.get("DATAIMPULSE_LOGIN")
+                    or os.environ.get("PROXY_HOST")
+                )
+
+                if proxy_active:
+                    print(f"\n{'=' * 60}")
+                    print(f"  ⚠️ Run #{run_number} Rate limited on current proxy IP: {rle.message}")
+                    print(f"  🔄 Proxy Mode Active: Instant rotation to fresh residential IP (no 15m cooldown)...")
+                    print(f"{'=' * 60}\n")
+                    await asyncio.sleep(3)
+                    continue
+
                 try:
                     flag_file = Path("/tmp/cloudflare_rate_limit_triggered.flag")
                     flag_file.write_text(f"rate_limited at {time.time()} by {args.target_url}\n")
