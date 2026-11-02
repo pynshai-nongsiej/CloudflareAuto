@@ -313,7 +313,7 @@ def main():
                     time.sleep(3)
 
             if not ip_info or ip_info.get("ip") in ("unknown", "Connecting...", "Retrying...", "Rotating..."):
-                ip_info = {"ip": "Connected", "country": "NordVPN", "city": "Active", "org": "NordVPN"}
+                raise RuntimeError("Failed to verify IP change after VPN rotation. Aborting batch to protect local IP from rate limits.")
 
             # 3. Launch 10 workers in visible terminal windows
             mode_desc = "Headed Terminal Windows" if not args.headless else "Headless Background"
