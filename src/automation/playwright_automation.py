@@ -490,70 +490,77 @@ async def _handle_otp_maintenance_resend(
     page: Page,
     email_address: str,
     log: Callable,
+    mail_client: Optional[TempMailClient] = None,
     rate_limit_intercepted: Optional[list] = None,
-) -> bool:
-    """Handles 'otp login maintenance' error on OTP screen:
+    maintenance_intercepted: Optional[list] = None,
+) -> Tuple[bool, str]:
+    """Handles 'otp login maintenance' error on login or OTP screen:
 
-    1. Clicks 'Change Email'.
-    2. Waits for email input on the login screen.
-    3. Confirms/re-fills the exact same email address.
+    1. Rotates to a fresh email address on an alternate verified domain (fexbox.org <-> rover.info).
+    2. Navigates back to the email input form if currently on /otp.
+    3. Clears and human-types the fresh verified email address.
     4. Clicks 'Send OTP' again.
     5. Waits for OTP verification screen to reload.
+
+    Returns:
+        (success: bool, active_email_address: str)
     """
-    log(f"[*] 🔄 Triggering OTP Maintenance Recovery: Resending OTP to same email ({email_address})...")
+    active_email = email_address
+    if mail_client:
+        curr_domain = email_address.split("@")[-1] if "@" in email_address else None
+        new_inbox = mail_client.create_inbox(exclude_domain=curr_domain)
+        active_email = new_inbox["address"]
+        log(f"[*] 🔄 Triggering OTP Maintenance Recovery: Rotating domain (@{curr_domain} -> @{new_inbox.get('domain')}) with fresh inbox: {active_email}...")
+    else:
+        log(f"[*] 🔄 Triggering OTP Maintenance Recovery: Resending OTP to {email_address}...")
 
-    # Step 1: Click Change Email
-    clicked = await _click_change_email(page, log)
-    await asyncio.sleep(1.0)
+    # Step 1: Click Change Email if on /otp, or prepare login form if on /login
+    if "/otp" in page.url:
+        clicked = await _click_change_email(page, log)
+        await asyncio.sleep(1.0)
 
-    if not clicked or "/otp" in page.url:
-        try:
-            email_inp = await page.query_selector('input[type="email"], input[name="email"], input[placeholder*="@"]')
-            if not email_inp or not await email_inp.is_visible():
-                log("[*] Trying page.go_back() to return to login email form...")
-                await page.go_back(wait_until="domcontentloaded", timeout=5000)
-                await asyncio.sleep(1.0)
-        except Exception:
-            pass
+        if not clicked or "/otp" in page.url:
+            try:
+                email_inp = await page.query_selector('input[type="email"], input[name="email"], input[placeholder*="@"]')
+                if not email_inp or not await email_inp.is_visible():
+                    log("[*] Trying page.go_back() to return to login email form...")
+                    await page.go_back(wait_until="domcontentloaded", timeout=5000)
+                    await asyncio.sleep(1.0)
+            except Exception:
+                pass
+    else:
+        log(f"[*] Already on login form ({page.url}). Directly replacing email field...")
 
     # Step 2: Wait for email input field to be ready
     try:
         email_input = await _wait_for_email_input(page, timeout=15000)
     except Exception as e:
         log(f"[!] Failed to find email input field after clicking Change Email: {e}")
-        return False
+        return False, email_address
 
-    # Step 3: Ensure the email input field has the exact same email address
+    # Step 3: Enter the fresh verified email address
+    log(f"[*] Typing fresh verified email address into input: {active_email}...")
     try:
-        curr_val = (await email_input.input_value()).strip()
+        await email_input.click()
+        select_all_key = "Meta+a" if sys.platform == "darwin" else "Control+a"
+        await page.keyboard.press(select_all_key)
+        await page.keyboard.press("Backspace")
+        await email_input.fill("")
     except Exception:
-        curr_val = ""
+        pass
+    await asyncio.sleep(0.3)
+    await _human_type(page, email_input, active_email, log)
 
-    if curr_val.lower() != email_address.lower():
-        log(f"[*] Re-filling exact same email address into input: {email_address}...")
-        try:
-            await email_input.click()
-            select_all_key = "Meta+a" if sys.platform == "darwin" else "Control+a"
-            await page.keyboard.press(select_all_key)
-            await page.keyboard.press("Backspace")
-            await email_input.fill("")
-        except Exception:
-            pass
-        await asyncio.sleep(0.2)
-        await _human_type(page, email_input, email_address, log)
-    else:
-        log(f"[+] Email input already contains exact email: {email_address}")
-
-    await asyncio.sleep(random.uniform(0.5, 1.2))
+    await asyncio.sleep(random.uniform(0.5, 1.0))
 
     # Step 4: Click Send OTP button again
     try:
         send_btn = await _find_send_otp_button(page)
-        log("[*] Clicking 'Send OTP' button again...")
+        log(f"[*] Clicking 'Send OTP' button for {active_email}...")
         await send_btn.click()
     except Exception as e:
         log(f"[!] Could not click Send OTP button on retry: {e}")
-        return False
+        return False, email_address
 
     # Step 5: Wait for OTP screen to reload
     log("[*] Waiting for OTP verification screen to reappear...")
@@ -566,6 +573,12 @@ async def _handle_otp_maintenance_resend(
             await _take_screenshot(page, "rate_limited", log)
             raise RateLimitError(wait_sec, msg)
 
+        if maintenance_intercepted is not None and (time.time() - start_wait) > 3.0:
+            maint = await _check_maintenance_error(page, maintenance_intercepted)
+            if maint:
+                log(f"[!] ⚠️ Immediate maintenance error upon resend: {maint}")
+                return False, active_email
+
         if "/otp" in page.url:
             reloaded_otp = True
             break
@@ -576,12 +589,12 @@ async def _handle_otp_maintenance_resend(
         await asyncio.sleep(1.0)
 
     if reloaded_otp:
-        log("[+] ✅ Successfully returned to OTP verification screen with fresh OTP requested!")
+        log(f"[+] ✅ Successfully returned to OTP verification screen with fresh OTP requested for {active_email}!")
         await asyncio.sleep(1.0)
-        return True
+        return True, active_email
     else:
         log(f"[!] Warning: Did not detect OTP screen within 30s of resend. Current URL: {page.url}")
-        return False
+        return False, active_email
 
 
 async def _enter_and_verify_otp(page: Page, otp_code: str, log: Callable) -> None:
@@ -963,12 +976,20 @@ async def register_and_verify(
                 # Check if maintenance error appeared on login form while still stuck on /login
                 maint_early = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_early and "/otp" not in page.url:
-                    log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Attempting resend...")
-                    try:
-                        retry_btn = await _find_send_otp_button(page)
-                        if retry_btn and await retry_btn.is_visible() and await retry_btn.is_enabled():
-                            await retry_btn.click()
-                    except Exception:
+                    log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Rotating to alternate verified domain...")
+                    resend_ok, new_email = await _handle_otp_maintenance_resend(
+                        page=page,
+                        email_address=email_address,
+                        log=log,
+                        mail_client=mail_client,
+                        rate_limit_intercepted=rate_limit_intercepted,
+                        maintenance_intercepted=maintenance_intercepted,
+                    )
+                    if resend_ok:
+                        email_address = new_email
+                        otp_found = True
+                        break
+                    else:
                         raise OtpMaintenanceError(maint_early)
 
                 # Check if OTP inputs appeared on current page
@@ -1012,13 +1033,17 @@ async def register_and_verify(
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
-                log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                await _handle_otp_maintenance_resend(
+                log(f"[*] Rotating email domain via Change Email...")
+                resend_ok, new_email = await _handle_otp_maintenance_resend(
                     page=page,
                     email_address=email_address,
                     log=log,
+                    mail_client=mail_client,
                     rate_limit_intercepted=rate_limit_intercepted,
+                    maintenance_intercepted=maintenance_intercepted,
                 )
+                if resend_ok:
+                    email_address = new_email
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
@@ -1054,14 +1079,17 @@ async def register_and_verify(
                     if maintenance_retries < max_maintenance_retries:
                         maintenance_retries += 1
                         log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
-                        log(f"[*] Clicking 'Change Email' and resending OTP to exact same email: {email_address}...")
-                        resend_ok = await _handle_otp_maintenance_resend(
+                        log(f"[*] Clicking 'Change Email' and rotating to alternate verified email...")
+                        resend_ok, new_email = await _handle_otp_maintenance_resend(
                             page=page,
                             email_address=email_address,
                             log=log,
+                            mail_client=mail_client,
                             rate_limit_intercepted=rate_limit_intercepted,
+                            maintenance_intercepted=maintenance_intercepted,
                         )
                         if resend_ok:
+                            email_address = new_email
                             # Reset wait timer so the new OTP has full time to arrive
                             start_poll = time.time()
                             log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
@@ -1110,14 +1138,17 @@ async def register_and_verify(
                     if maint_err:
                         post_maint_handled = True
                         log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
-                        log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                        resend_ok = await _handle_otp_maintenance_resend(
+                        log(f"[*] Clicking 'Change Email' and rotating to alternate verified email...")
+                        resend_ok, new_email = await _handle_otp_maintenance_resend(
                             page=page,
                             email_address=email_address,
                             log=log,
+                            mail_client=mail_client,
                             rate_limit_intercepted=rate_limit_intercepted,
+                            maintenance_intercepted=maintenance_intercepted,
                         )
                         if resend_ok:
+                            email_address = new_email
                             log(f"[*] Polling TempMail.Plus inbox for new OTP code ({email_address})...")
                             new_otp = None
                             start_new_poll = time.time()

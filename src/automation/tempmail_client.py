@@ -6,18 +6,15 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-# Official dropdown domains on https://tempmail.plus/en/#!
-FALLBACK_DOMAINS = [
-    "mailto.plus",
-    "fexpost.com",
+# Domains verified to reliably receive TenBox OTP delivery without triggering
+# TenBox's HTTP 402 ("Email delivery failed" -> masked as "OTP login is under maintenance").
+VERIFIED_DOMAINS = [
     "fexbox.org",
-    "mailbox.in.ua",
     "rover.info",
-    "chitthi.in",
-    "fextemp.com",
-    "any.pink",
-    "merepost.com",
 ]
+
+# Official dropdown domains on https://tempmail.plus/en/#! that are verified to deliver
+FALLBACK_DOMAINS = list(VERIFIED_DOMAINS)
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 API_BASE = "https://tempmail.plus"
@@ -62,7 +59,8 @@ def get_random_pre() -> str:
 def fetch_live_domains() -> List[str]:
     """Fetch current dropdown domains directly from https://tempmail.plus/en/#!.
     
-    Falls back to FALLBACK_DOMAINS if fetch fails or yields empty.
+    Filters by VERIFIED_DOMAINS to ensure TenBox accepts delivery without
+    triggering false OTP maintenance errors.
     """
     try:
         req = urllib.request.Request(
@@ -79,10 +77,12 @@ def fetch_live_domains() -> List[str]:
             )
             if found:
                 unique_domains = list(dict.fromkeys(d.lower() for d in found))
-                return unique_domains
+                verified = [d for d in unique_domains if d in VERIFIED_DOMAINS]
+                if verified:
+                    return verified
     except Exception:
         pass
-    return FALLBACK_DOMAINS
+    return list(VERIFIED_DOMAINS)
 
 
 def extract_otp_code(text: str) -> Optional[str]:
@@ -134,14 +134,20 @@ class TempMailClient:
         default_domain = self.domains[0] if self.domains else FALLBACK_DOMAINS[0]
         return f"{email_or_local.strip()}@{default_domain}"
 
-    def create_inbox(self, clean: bool = True, domain: Optional[str] = None) -> Dict[str, Any]:
+    def create_inbox(
+        self,
+        clean: bool = True,
+        domain: Optional[str] = None,
+        exclude_domain: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Create a new temporary email address on TempMail.Plus.
         
-        Uses the exact random name generator and picks a random domain from the dropdown.
+        Uses the exact random name generator and picks a verified working domain.
 
         Args:
             clean: Kept for interface backward compatibility.
-            domain: Optional explicit domain override. If None, picks randomly from dropdown.
+            domain: Optional explicit domain override.
+            exclude_domain: Optional domain to exclude (e.g. to rotate domains during recovery).
 
         Returns:
             dict with 'address', 'name', 'domain', and 'expires' timestamp (ms).
@@ -150,7 +156,13 @@ class TempMailClient:
         if not self.domains:
             self.domains = fetch_live_domains()
 
-        selected_domain = domain if (domain and domain in self.domains) else random.choice(self.domains)
+        valid_pool = [d for d in self.domains if d in VERIFIED_DOMAINS] or list(VERIFIED_DOMAINS)
+        if exclude_domain:
+            filtered = [d for d in valid_pool if d.lower() != exclude_domain.lower()]
+            if filtered:
+                valid_pool = filtered
+
+        selected_domain = domain if (domain and domain in valid_pool) else random.choice(valid_pool)
         name = get_random_pre()
         email = f"{name}@{selected_domain}"
 
@@ -165,9 +177,9 @@ class TempMailClient:
             "expires": int((time.time() + 600) * 1000),  # 10 min default in ms
         }
 
-    def create_clean_inbox(self) -> Dict[str, Any]:
+    def create_clean_inbox(self, exclude_domain: Optional[str] = None) -> Dict[str, Any]:
         """Create a polished inbox with clean format (alias for create_inbox)."""
-        return self.create_inbox(clean=True)
+        return self.create_inbox(clean=True, exclude_domain=exclude_domain)
 
     def get_messages(self, email_or_local: str) -> List[Dict[str, Any]]:
         """Fetch all messages for an inbox from TempMail.Plus."""
