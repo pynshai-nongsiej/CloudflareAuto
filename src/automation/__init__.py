@@ -1,6 +1,6 @@
 from .tempmail_client import TempMailClient
 try:
-    from .playwright_automation import register_and_verify, RateLimitError, cleanup_all_screenshots
+    from .playwright_automation import register_and_verify, RateLimitError, OtpMaintenanceError, cleanup_all_screenshots
 except ImportError:
     pass
 
@@ -22,6 +22,7 @@ __all__ = [
     "TempMailClient",
     "register_and_verify",
     "RateLimitError",
+    "OtpMaintenanceError",
     "cleanup_all_screenshots",
     "create_browser_use_agent",
     "get_default_llm",

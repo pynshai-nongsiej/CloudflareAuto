@@ -297,24 +297,22 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
-echo "[${LABEL}] Starting 1 registration on dedicated residential IP..."
+echo "[${LABEL}] Starting continuous automation loop (no limit)..."
 echo ""
 
-"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --timeout 120 ${EXTRA_ARGS}
-WORKER_STATUS=\$?
-if [[ \$WORKER_STATUS -eq 0 ]]; then
-    echo ""
-    echo "[${LABEL}] ✅ Registration completed successfully on dedicated residential IP. Done."
-    exit 0
-elif [[ \$WORKER_STATUS -eq 42 ]]; then
-    echo ""
-    echo "[${LABEL}] Rate limited (exit 42) -- finishing."
-    exit 42
-else
-    echo ""
-    echo "[${LABEL}] Process finished with code \$WORKER_STATUS."
-    exit \$WORKER_STATUS
-fi
+while true; do
+    "${PYTHON}" -u main.py --mode ${MODE} --loop --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --timeout 120 ${EXTRA_ARGS}
+    WORKER_STATUS=\$?
+    if [[ \$WORKER_STATUS -eq 42 ]]; then
+        echo ""
+        echo "[${LABEL}] Rate limited (exit 42) -- restarting in 5s with fresh proxy IP..."
+        sleep 5
+    else
+        echo ""
+        echo "[${LABEL}] Process exited (code \$WORKER_STATUS) -- restarting in 5s..."
+        sleep 5
+    fi
+done
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"

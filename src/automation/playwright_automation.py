@@ -136,6 +136,13 @@ class RateLimitError(Exception):
         self.message = message
 
 
+class OtpMaintenanceError(Exception):
+    """Raised when TenBox displays an OTP login maintenance error."""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
 async def _human_type(page: Page, selector_or_element, text: str, log: Callable):
     """Type text with randomized delays to mimic human input."""
     element = selector_or_element
@@ -729,6 +736,7 @@ async def register_and_verify(
 
     # Check for proxy configuration (explicit CLI argument, environment, or DataImpulse)
     proxy_config = resolve_playwright_proxy(proxy, worker_id, log)
+    is_proxy_active = bool(proxy_config)
 
     # ── Step 1: Create temporary email (TempMail.Plus random name & domain) ──
     log("[*] Creating temporary email on TempMail.Plus...")
@@ -1011,6 +1019,9 @@ async def register_and_verify(
             # Quick check if maintenance error is immediately visible upon landing on OTP screen
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
+                if is_proxy_active:
+                    log(f"[!] ⚠️ Immediate OTP login maintenance error in residential proxy mode ({initial_maint}). Skipping run to avoid rate limits...")
+                    raise OtpMaintenanceError(initial_maint)
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
                 log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
                 await _handle_otp_maintenance_resend(
@@ -1050,22 +1061,26 @@ async def register_and_verify(
 
                 # 3. Check for OTP login maintenance error on OTP screen
                 maint_err = await _check_maintenance_error(page, maintenance_intercepted)
-                if maint_err and maintenance_retries < max_maintenance_retries:
-                    maintenance_retries += 1
-                    log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
-                    log(f"[*] Clicking 'Change Email' and resending OTP to exact same email: {email_address}...")
-                    resend_ok = await _handle_otp_maintenance_resend(
-                        page=page,
-                        email_address=email_address,
-                        log=log,
-                        rate_limit_intercepted=rate_limit_intercepted,
-                    )
-                    if resend_ok:
-                        # Reset wait timer so the new OTP has full time to arrive
-                        start_poll = time.time()
-                        log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
-                    else:
-                        log("[!] Could not complete Change Email resend cycle, continuing wait...")
+                if maint_err:
+                    if is_proxy_active:
+                        log(f"[!] ⚠️ OTP login maintenance error in residential proxy mode ({maint_err}). Skipping run to avoid rate limits...")
+                        raise OtpMaintenanceError(maint_err)
+                    if maintenance_retries < max_maintenance_retries:
+                        maintenance_retries += 1
+                        log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
+                        log(f"[*] Clicking 'Change Email' and resending OTP to exact same email: {email_address}...")
+                        resend_ok = await _handle_otp_maintenance_resend(
+                            page=page,
+                            email_address=email_address,
+                            log=log,
+                            rate_limit_intercepted=rate_limit_intercepted,
+                        )
+                        if resend_ok:
+                            # Reset wait timer so the new OTP has full time to arrive
+                            start_poll = time.time()
+                            log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
+                        else:
+                            log("[!] Could not complete Change Email resend cycle, continuing wait...")
 
                 await asyncio.sleep(2.0)
                 poll_attempt += 1
@@ -1104,6 +1119,9 @@ async def register_and_verify(
                 if not post_maint_handled:
                     maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                     if maint_err:
+                        if is_proxy_active:
+                            log(f"[!] ⚠️ OTP login maintenance error after OTP submission in residential proxy mode ({maint_err}). Skipping run to avoid rate limits...")
+                            raise OtpMaintenanceError(maint_err)
                         post_maint_handled = True
                         log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
                         log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")

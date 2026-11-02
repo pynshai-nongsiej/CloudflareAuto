@@ -46,7 +46,7 @@ if sys.platform == "win32":
             pass
 
 from src.automation.tempmail_client import TempMailClient
-from src.automation.playwright_automation import register_and_verify, RateLimitError, cleanup_all_screenshots
+from src.automation.playwright_automation import register_and_verify, RateLimitError, OtpMaintenanceError, cleanup_all_screenshots
 from src.automation.browser_use_automation import create_browser_use_agent, get_default_llm
 
 
@@ -357,6 +357,17 @@ async def run_loop(args):
 
             except KeyboardInterrupt:
                 raise
+            except OtpMaintenanceError as ome:
+                failures += 1
+                log_event(args, "otp_maintenance_skipped", {"message": str(ome)})
+                print(f"\n{'=' * 60}")
+                print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE (Residential Proxy Mode)")
+                print(f"     Details: {ome.message}")
+                print(f"  ⏭️ Skipping attempt (no retry on proxy to avoid rate limits & save bandwidth).")
+                print(f"  🔄 Next run will use a brand new residential IP in 2s...")
+                print(f"{'=' * 60}\n")
+                await asyncio.sleep(2)
+                continue
             except RateLimitError as rle:
                 failures += 1
                 log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
@@ -457,8 +468,12 @@ async def run_direct(args):
     print(f"  Target: {args.target_url} ({args.target_email})")
     print("=" * 60)
 
-    result = await run_direct_single(args)
-    print_result(result)
+    try:
+        result = await run_direct_single(args)
+        print_result(result)
+    except OtpMaintenanceError as ome:
+        print(f"\n[!] ⚠️ OTP maintenance encountered in proxy mode: {ome.message}")
+        print("[!] Skipped run.")
 
 
 def main():
