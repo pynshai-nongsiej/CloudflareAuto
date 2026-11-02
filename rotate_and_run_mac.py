@@ -34,44 +34,40 @@ TRIGGER_FLAG = Path("/tmp/cloudflare_rate_limit_triggered.flag")
 EVENTS_FILE = PROJECT_ROOT / "logs" / "events.jsonl"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
-ACCOUNTS = [
-    {
-        "id": "1",
-        "email": "pn@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D",
-    },
-    {
-        "id": "2",
-        "email": "dd@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
-    },
-    {
-        "id": "3",
-        "email": "jn@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
-    },
-    {
-        "id": "4",
-        "email": "dai@gmail.com",
-        "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33",
-    },
-]
+ACCOUNT_PRESETS = {
+    "1": [{"id": "1", "email": "pn@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D"}],
+    "2": [{"id": "4", "email": "dai@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33"}],
+    "3": [{"id": "2", "email": "dd@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R"}],
+    "4": [{"id": "3", "email": "jn@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK"}],
+    "5": [
+        {"id": "1", "email": "pn@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D"},
+        {"id": "4", "email": "dai@gmail.com", "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33"},
+    ],
+}
+
+ACCOUNTS = ACCOUNT_PRESETS["5"]
 
 dashboard = RichDashboard(
     platform_name="macOS",
-    target_subtitle="Target Accounts: pn, dd, jn, dai (4 workers total)",
+    target_subtitle="Target Accounts: pn & dai (3 workers each = 6 total)",
 )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="macOS 4-Worker Runner (pn, dd, jn, dai) with Live Dashboard & NordVPN Auto-Rotator"
+        description="macOS 6-Worker Runner (pn & dai) with Live Dashboard & NordVPN Auto-Rotator"
+    )
+    parser.add_argument(
+        "--target",
+        type=str,
+        default="5",
+        help="Target account choice: 1=pn, 2=dai, 3=dd, 4=jn, 5=pn & dai (default: 5 for macOS)",
     )
     parser.add_argument(
         "--workers-per-link",
         type=int,
-        default=1,
-        help="Number of workers per link (default: 1, total 4 scattered across all 4 accounts)",
+        default=3,
+        help="Number of workers per link (default: 3, total 6 across pn & dai)",
     )
     parser.add_argument(
         "--mode",
@@ -118,14 +114,14 @@ def parse_args():
     parser.add_argument(
         "--cooldown-min",
         type=int,
-        default=0,
-        help="Minimum cooldown delay in seconds after batch/rate-limit before rotating (default: 0)",
+        default=30,
+        help="Minimum cooldown delay in seconds after batch before rotating (default: 30s per cycle)",
     )
     parser.add_argument(
         "--cooldown-max",
         type=int,
-        default=0,
-        help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 0)",
+        default=30,
+        help="Maximum cooldown delay in seconds after batch before rotating (default: 30s per cycle)",
     )
     args, _ = parser.parse_known_args()
     return args
@@ -183,9 +179,9 @@ def count_active_workers() -> int:
     return len(lines)
 
 
-def launch_workers(workers_per_link: int, mode: str, delay_min: int, delay_max: int, browser_headed: bool = False, headless: bool = False):
-    """Launch workers in visible Terminal windows across all 4 accounts."""
-    total_workers = workers_per_link * len(ACCOUNTS)
+def launch_workers(workers_per_link: int, mode: str, delay_min: int, delay_max: int, browser_headed: bool = False, headless: bool = False, target: str = "5", num_accounts: int = 2):
+    """Launch workers in visible Terminal windows across target account(s)."""
+    total_workers = workers_per_link * num_accounts
     env = os.environ.copy()
     env["WORKERS_PER_LINK"] = str(workers_per_link)
     env["NUM_WINDOWS"] = str(total_workers)
@@ -203,7 +199,7 @@ def launch_workers(workers_per_link: int, mode: str, delay_min: int, delay_max: 
     env["EXTRA_ARGS"] = " ".join(extra)
 
     launcher = PROJECT_ROOT / "launch_multi_mac.sh"
-    cmd = ["bash", str(launcher), "5", "--vpn"]
+    cmd = ["bash", str(launcher), target, "--vpn"]
     if headless:
         cmd.append("--headless")
     else:
@@ -214,13 +210,14 @@ def launch_workers(workers_per_link: int, mode: str, delay_min: int, delay_max: 
     subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env)
 
 
-def read_events_stats() -> tuple[dict, list]:
+def read_events_stats(accounts=None) -> tuple[dict, list]:
     """Parse events.jsonl to calculate cumulative stats and recent events."""
+    acc_list = accounts or ACCOUNTS
     stats = {
         "total_success": 0,
         "total_failure": 0,
         "total_rate_limit": 0,
-        "accounts": {acc["email"]: {"success": 0, "failure": 0, "rate_limit": 0} for acc in ACCOUNTS},
+        "accounts": {acc["email"]: {"success": 0, "failure": 0, "rate_limit": 0} for acc in acc_list},
     }
     recent_events = []
 
@@ -265,9 +262,10 @@ def read_events_stats() -> tuple[dict, list]:
     return stats, recent_events
 
 
-def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers: int, status_msg: str = "Active"):
+def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers: int, status_msg: str = "Active", accounts=None):
     """Render terminal dashboard cleanly via Rich."""
-    stats, recent_events = read_events_stats()
+    acc_list = accounts or ACCOUNTS
+    stats, recent_events = read_events_stats(acc_list)
     active_workers = count_active_workers()
     dashboard.render(
         cycle=cycle,
@@ -277,14 +275,29 @@ def render_dashboard(cycle: int, start_time: float, ip_info: dict, total_workers
         active_workers=active_workers,
         stats=stats,
         recent_events=recent_events,
-        accounts=ACCOUNTS,
+        accounts=acc_list,
         status_msg=status_msg,
     )
 
 
 def main():
     args = parse_args()
-    total_workers = args.workers_per_link * len(ACCOUNTS)
+    target_opt = str(args.target).strip()
+    accounts = ACCOUNT_PRESETS.get(target_opt, ACCOUNT_PRESETS["5"])
+
+    if target_opt == "1":
+        subtitle = "Target Account: pn@gmail.com (3 workers)"
+    elif target_opt == "2":
+        subtitle = "Target Account: dai@gmail.com (3 workers)"
+    elif target_opt == "3":
+        subtitle = "Target Account: dd@gmail.com (3 workers)"
+    elif target_opt == "4":
+        subtitle = "Target Account: jn@gmail.com (3 workers)"
+    else:
+        subtitle = "Target Accounts: pn & dai (3 workers each = 6 total)"
+
+    dashboard.target_subtitle = subtitle
+    total_workers = args.workers_per_link * len(accounts)
     start_time = time.time()
     cycle_count = 0
 
@@ -300,7 +313,7 @@ def main():
             cycle_count += 1
 
             # 1. Close any existing worker processes and Terminal windows
-            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Rotating VPN...")
+            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Rotating VPN...", accounts=accounts)
             close_all_terminals()
             clear_trigger_flag()
 
@@ -316,6 +329,7 @@ def main():
                         {"ip": "Rotating...", "country": "??", "city": "...", "org": "NordVPN"},
                         total_workers,
                         status_msg=f"Rotating VPN across 7,100+ pool (Attempt {rot_attempt}/5)...",
+                        accounts=accounts,
                     )
                     country_target = args.country if hasattr(args, "country") and args.country and cycle_count == 1 else None
                     ip_info = rotate_vpn(country_target)
@@ -326,6 +340,7 @@ def main():
                         {"ip": "Retrying...", "country": "??", "city": "...", "org": "NordVPN"},
                         total_workers,
                         status_msg=f"⚠️ VPN Rotation Error: {e}",
+                        accounts=accounts,
                     )
                     time.sleep(3)
 
@@ -334,7 +349,7 @@ def main():
 
             # 3. Launch workers in visible Terminal windows
             mode_desc = "Headed Terminal Windows" if not args.headless else "Headless Background"
-            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=f"Launching {total_workers} Workers ({mode_desc})...")
+            render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=f"Launching {total_workers} Workers ({mode_desc})...", accounts=accounts)
             launch_workers(
                 workers_per_link=args.workers_per_link,
                 mode=args.mode,
@@ -342,9 +357,11 @@ def main():
                 delay_max=args.delay_max,
                 browser_headed=args.browser_headed,
                 headless=args.headless,
+                target=target_opt,
+                num_accounts=len(accounts),
             )
 
-            # 4. Dashboard monitoring loop: allows all 20 batch sessions to complete before rotating
+            # 4. Dashboard monitoring loop: allows all batch sessions to complete before rotating
             cycle_start = time.time()
             max_batch_time = 180  # Up to 3 minutes for slow OTP delivery + initial stagger
 
@@ -357,20 +374,20 @@ def main():
                 if rate_limited:
                     if active > 0 and batch_elapsed < max_batch_time:
                         msg = f"⚠️ Rate limit hit on IP -- letting {active} ongoing sessions finish..."
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg, accounts=accounts)
                         continue
                     else:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Rotating immediately...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Rotating immediately...", accounts=accounts)
                         break
                 else:
                     if active == 0 and batch_elapsed > 30:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Rotating immediately...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Rotating immediately...", accounts=accounts)
                         break
                     elif batch_elapsed >= max_batch_time:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Rotating immediately...")
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Rotating immediately...", accounts=accounts)
                         break
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
-                    render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                    render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg, accounts=accounts)
 
             # 5. Cleanly close terminals and remove trigger flag
             close_all_terminals()
@@ -399,6 +416,7 @@ def main():
                         {"ip": "Cooldown (Disconnected)", "country": "--", "city": "Resting...", "org": "None"},
                         total_workers,
                         status_msg=msg,
+                        accounts=accounts,
                     )
                     time.sleep(1.0)
             else:
@@ -413,8 +431,9 @@ def main():
                         remaining = int(cooldown_end - time.time())
                         mins = remaining // 60
                         secs = remaining % 60
-                        msg = f"⏳ Cooldown ({mins}m {secs:02d}s remaining) before rotating to next location..."
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                        time_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+                        msg = f"⏳ Cooldown ({time_str} remaining) before rotating to next location..."
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg, accounts=accounts)
                         time.sleep(1.0)
 
     except KeyboardInterrupt:

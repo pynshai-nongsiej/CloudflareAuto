@@ -447,7 +447,7 @@ async def run_loop(args):
                 if delay_max > 0:
                     delay = random.uniform(delay_min, delay_max)
                 elif proxy_active:
-                    delay = 60.0  # 1-minute cooldown for residential proxies
+                    delay = random.uniform(25.0, 30.0)  # random 25-30s cooldown for residential proxies
                 else:
                     delay = 0.0
 
