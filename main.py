@@ -330,31 +330,28 @@ async def run_loop(args):
     # Detect proxy configuration
     proxy_disabled = (
         getattr(args, "no_proxy", False)
-        or str(getattr(args, "proxy", "")).strip().lower() in ("none", "off", "false", "0", "direct")
+        or (bool(getattr(args, "proxy", None)) and str(args.proxy).strip().lower() in ("none", "off", "false", "0", "direct"))
         or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
         or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
     )
-    proxy_active = (not proxy_disabled) and bool(
-        getattr(args, "proxy", None)
-        or os.environ.get("PROXY_SERVER")
-        or os.environ.get("DATAIMPULSE_LOGIN")
-        or os.environ.get("PROXY_HOST")
-    )
+    proxy_active = not proxy_disabled
 
     print("=" * 60)
+    print(f"  Worker:       {getattr(args, 'worker_id', 'Worker-01')}")
+    print(f"  Account:      {args.target_email}")
+    print(f"  Target URL:   {args.target_url}")
+    print(f"  Network:      {'Residential Proxy (DataImpulse)' if proxy_active else 'NordVPN / Host Direct (No Proxy)'}")
     print(f"  Mode:         {args.mode}")
     print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
     if delay_max > 0:
         delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
         print(f"  Pacing:       {delay_desc} between runs")
     elif proxy_active:
-        print(f"  Pacing:       1 minute (60s) cooldown after each run")
+        print(f"  Pacing:       Staggered cooldown per worker (Worker 1: ~55s, Worker 2: ~75s, Worker 3: ~95s, Worker 4: ~115s)")
     else:
         print(f"  Pacing:       No cooldown (continuous)")
     if sys.platform == "darwin":
         print(f"  Referrer:     {referrer_mode.upper() if referrer_mode else 'NONE'} (Instagram, Telegram, Facebook, YouTube, etc.)")
-    print(f"  Target URL:   {args.target_url}")
-    print(f"  Account:      {args.target_email}")
     print(f"  Headed:       {args.headed}")
     print(f"  Timeout:      {args.timeout}s")
     print("=" * 60)
@@ -493,9 +490,19 @@ async def run_loop(args):
 
 
 async def run_direct(args):
+    proxy_disabled = (
+        getattr(args, "no_proxy", False)
+        or (bool(getattr(args, "proxy", None)) and str(args.proxy).strip().lower() in ("none", "off", "false", "0", "direct"))
+        or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
+        or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
+    )
+    proxy_mode = "Direct / NordVPN (No Proxy)" if proxy_disabled else "Residential Proxy (DataImpulse)"
+
     print("=" * 60)
     print("  Starting Direct Playwright Automation for TenBox Websurfer")
-    print(f"  Target: {args.target_url} ({args.target_email})")
+    print(f"  Worker:  {getattr(args, 'worker_id', 'Worker-01')}")
+    print(f"  Target:  {args.target_url} ({args.target_email})")
+    print(f"  Network: {proxy_mode}")
     print("=" * 60)
 
     try:

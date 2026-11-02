@@ -133,16 +133,16 @@ def record_used_ip(ip: str, mode: str = "residential", worker_id: Optional[str] 
         pass
 
 
-def get_external_ip_through_proxy(server: str, username: str, password: str, timeout: float = 4.0) -> Optional[str]:
+def get_external_ip_through_proxy(server: str, username: str, password: str, timeout: float = 6.0) -> Optional[str]:
     """Query external IP through an HTTP proxy using lightweight HTTP endpoints."""
     proxy_url = f"http://{username}:{password}@{server.replace('http://', '').replace('https://', '')}"
     handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
     opener = urllib.request.build_opener(handler)
 
     endpoints = [
-        ("https://api.ipify.org?format=json", lambda d: json.loads(d).get("ip")),
-        ("https://ipinfo.io/json", lambda d: json.loads(d).get("ip")),
         ("http://checkip.amazonaws.com", lambda d: d.strip()),
+        ("https://ipinfo.io/json", lambda d: json.loads(d).get("ip")),
+        ("https://api.ipify.org?format=json", lambda d: json.loads(d).get("ip")),
     ]
 
     for ep_url, parser in endpoints:
@@ -172,33 +172,47 @@ def acquire_fresh_residential_proxy(
         else:
             print(msg)
 
-    # 1. Parse base credentials
+    # 1. Parse base credentials and gateway host
     server = None
     username = None
     password = None
 
-    if raw_proxy:
-        if "@" in raw_proxy:
+    raw = raw_proxy or os.environ.get("PROXY_SERVER")
+    if raw:
+        if "@" in raw:
             from urllib.parse import urlparse
-            parsed = urlparse(raw_proxy)
+            parsed = urlparse(raw)
             server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
             username = parsed.username
             password = parsed.password
         else:
-            server = raw_proxy
-    elif os.environ.get("PROXY_HOST"):
-        host = os.environ.get("PROXY_HOST")
-        port = os.environ.get("PROXY_PORT", "823")
-        server = f"http://{host}:{port}"
-    else:
-        default_host = os.environ.get("DATAIMPULSE_HOST", "gw.dataimpulse.com")
-        default_port = os.environ.get("DATAIMPULSE_PORT", "823")
-        default_user = os.environ.get("DATAIMPULSE_LOGIN", "2490cf77ff2b92918641")
-        default_pass = os.environ.get("DATAIMPULSE_PASS", "6b184f3f8c527d2e")
-        if default_user and default_pass:
+            server = raw
+
+    if not server:
+        if os.environ.get("PROXY_HOST"):
+            host = os.environ.get("PROXY_HOST")
+            port = os.environ.get("PROXY_PORT", "823")
+            server = f"http://{host}:{port}"
+        else:
+            default_host = os.environ.get("DATAIMPULSE_HOST", "gw.dataimpulse.com")
+            default_port = os.environ.get("DATAIMPULSE_PORT", "823")
             server = f"http://{default_host}:{default_port}"
-            username = default_user
-            password = default_pass
+
+    if server and not (server.startswith("http://") or server.startswith("https://")):
+        server = f"http://{server}"
+
+    if not username:
+        username = (
+            os.environ.get("PROXY_USER")
+            or os.environ.get("DATAIMPULSE_LOGIN")
+            or "2490cf77ff2b92918641"
+        )
+    if not password:
+        password = (
+            os.environ.get("PROXY_PASS")
+            or os.environ.get("DATAIMPULSE_PASS")
+            or "6b184f3f8c527d2e"
+        )
 
     if not server or not username:
         return None
@@ -220,7 +234,7 @@ def acquire_fresh_residential_proxy(
 
     # Load all historical used IPs
     used_history = load_all_used_ips(force_reload=True)
-    log(f"[*] 🔍 Checking against {len(used_history)} historically used IPs (Zero Duplicate Guarantee)...")
+    log(f"[*] 🔍 [{worker_id or 'Worker'}] Checking against {len(used_history)} historically used IPs (Zero Duplicate Guarantee)...")
 
     base_user = username.split("__")[0]
 
@@ -232,8 +246,8 @@ def acquire_fresh_residential_proxy(
         else:
             test_user = f"{base_user}__cr.{target_country};sessid.{session_id};sessttl.{ttl}"
 
-        log(f"[*] [Attempt {attempt}/{max_retries}] Probing residential proxy session {session_id}...")
-        ext_ip = get_external_ip_through_proxy(server, test_user, password, timeout=4.0)
+        log(f"[*] [{worker_id or 'Worker'}] [Attempt {attempt}/{max_retries}] Probing residential proxy session {session_id}...")
+        ext_ip = get_external_ip_through_proxy(server, test_user, password, timeout=6.0)
 
         if not ext_ip:
             log(f"    ⚠️ Timeout connecting through session {session_id}. Retrying fresh session...")
@@ -246,7 +260,12 @@ def acquire_fresh_residential_proxy(
         # Verified unique IP! Record immediately so no other concurrent worker re-uses it
         record_used_ip(ext_ip, mode="residential", worker_id=worker_id)
         country_tag = f" [{target_country.upper()}]" if target_country not in ("any", "none", "off", "") else ""
-        log(f"[+] 🛡️ Assigned Fresh Residential IP: {ext_ip}{country_tag} [Session: {session_id}] (Verified 100% Unique)")
+        log(f"\n{'=' * 60}")
+        log(f"  🌐 RESIDENTIAL PROXY ACQUIRED FOR {worker_id or 'Worker'}")
+        log(f"  🛡️ Outbound IP: {ext_ip}{country_tag} (Verified 100% Unique)")
+        log(f"  🆔 Session ID:  {session_id}")
+        log(f"  🔗 Gateway:     {server}")
+        log(f"{'=' * 60}\n")
 
         return {
             "server": server,
@@ -269,5 +288,6 @@ def acquire_fresh_residential_proxy(
         "username": fallback_user,
         "password": password,
         "session_id": session_id,
+        "verified_ip": "dynamic-sticky",
     }
 

@@ -15,7 +15,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -40,19 +40,23 @@ except ImportError:
 
 
 def resolve_playwright_proxy(
-    proxy_arg: Optional[str] = None,
+    proxy_arg: Optional[Union[str, dict]] = None,
     worker_id: Optional[str] = None,
     log_fn: Optional[Callable[[str], None]] = None,
-) -> Optional[Dict[str, str]]:
+) -> Optional[Dict[str, Any]]:
     """Resolve Playwright proxy configuration dictionary with automatic residential rotation.
 
     Hierarchy:
+      -1. If proxy_arg is already a resolved dict, return it directly.
       0. Explicit disable via proxy_arg='none'/'off' or NETWORK_MODE='vpn'/'nordvpn' or USE_PROXY='0'/'false'
       1. Explicit CLI argument --proxy
       2. Environment variable PROXY_SERVER (e.g. http://user:pass@host:port or http://host:port)
       3. Environment variables PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS
       4. Default to DataImpulse credentials if configured and not explicitly disabled.
     """
+    if isinstance(proxy_arg, dict):
+        return proxy_arg
+
     # Check if proxy is explicitly disabled (e.g. for NordVPN or direct connection)
     if (
         (proxy_arg and str(proxy_arg).strip().lower() in ("none", "off", "no", "false", "0", "disabled", "direct"))
@@ -66,7 +70,7 @@ def resolve_playwright_proxy(
 
     from src.automation.ip_tracker import acquire_fresh_residential_proxy
 
-    raw_proxy = proxy_arg or os.environ.get("PROXY_SERVER")
+    raw_proxy = proxy_arg if (isinstance(proxy_arg, str) and proxy_arg) else os.environ.get("PROXY_SERVER")
     proxy_info = acquire_fresh_residential_proxy(raw_proxy=raw_proxy, worker_id=worker_id, log_fn=log_fn)
     if not proxy_info:
         return None
@@ -75,6 +79,8 @@ def resolve_playwright_proxy(
         "server": proxy_info["server"],
         "username": proxy_info["username"],
         "password": proxy_info["password"],
+        "verified_ip": proxy_info.get("verified_ip"),
+        "session_id": proxy_info.get("session_id"),
     }
     return proxy_cfg
 
@@ -699,6 +705,20 @@ async def register_and_verify(
     proxy_config = resolve_playwright_proxy(proxy, worker_id, log)
     is_proxy_active = bool(proxy_config)
 
+    assigned_ip = proxy_config.get("verified_ip") if proxy_config else None
+    if assigned_ip:
+        log(f"[+] 🌐 Starting Chromium on verified residential IP: {assigned_ip} (Session: {proxy_config.get('session_id')})")
+    elif not is_proxy_active:
+        log("[*] 🌐 Starting Chromium on direct device network (No Proxy)")
+
+    pw_proxy = None
+    if proxy_config:
+        pw_proxy = {
+            "server": proxy_config["server"],
+            "username": proxy_config["username"],
+            "password": proxy_config["password"],
+        }
+
     # ── Step 1: Create temporary email (TempMail.Plus random name & domain) ──
     log("[*] Creating temporary email on TempMail.Plus...")
     inbox = mail_client.create_inbox()
@@ -712,15 +732,15 @@ async def register_and_verify(
             "headless": not headed,
             "args": get_launch_args(),
         }
-        if proxy_config:
-            launch_kwargs["proxy"] = proxy_config
+        if pw_proxy:
+            launch_kwargs["proxy"] = pw_proxy
 
         log(f"[*] Launching Chromium (headed={headed}) with stealth fingerprint...")
         browser = await p.chromium.launch(**launch_kwargs)
 
         context_opts = get_playwright_context_options(fp)
-        if proxy_config:
-            context_opts["proxy"] = proxy_config
+        if pw_proxy:
+            context_opts["proxy"] = pw_proxy
         if ref_info:
             extra_h = context_opts.get("extra_http_headers", {})
             extra_h["Sec-Fetch-Site"] = "cross-site"
