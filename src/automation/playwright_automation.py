@@ -389,7 +389,11 @@ async def _check_maintenance_error(page: Page, intercepted: Optional[list] = Non
 
         def _is_maintenance(text: str) -> bool:
             lower = text.lower()
-            return ("maintainance" in lower or "maintenance" in lower) and ("otp" in lower or "login" in lower)
+            if ("maintainance" in lower or "maintenance" in lower) and ("otp" in lower or "login" in lower or "code" in lower):
+                return True
+            if "couldn't send the code" in lower or "please use google login" in lower:
+                return True
+            return False
 
         for sel in selectors:
             try:
@@ -963,6 +967,13 @@ async def register_and_verify(
                     await _take_screenshot(page, "rate_limited", log)
                     log(f"[!] ⚠️ Rate limit encountered: {msg}")
                     raise RateLimitError(wait_sec, msg)
+
+                # Instant check: Did maintenance error appear on login form or transition?
+                maint_early = await _check_maintenance_error(page, maintenance_intercepted)
+                if maint_early:
+                    if is_proxy_active:
+                        log(f"[!] ⚠️ Instant OTP maintenance detected ({maint_early}). Aborting attempt immediately to save resources...")
+                        raise OtpMaintenanceError(maint_early)
 
                 # Fast check: Did URL navigate to /otp?
                 if "/otp" in page.url:

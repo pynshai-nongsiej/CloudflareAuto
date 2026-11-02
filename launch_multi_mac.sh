@@ -297,21 +297,44 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
-echo "[${LABEL}] Starting continuous automation loop (no limit)..."
-echo ""
+RUN_COUNT=0
+SUCCESS_COUNT=0
 
 while true; do
-    "${PYTHON}" -u main.py --mode ${MODE} --loop --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --timeout 120 ${EXTRA_ARGS}
+    RUN_COUNT=\$((RUN_COUNT + 1))
+
+    # Clear terminal screen and scrollback buffer to prevent memory bloat
+    clear 2>/dev/null || printf "\033[2J\033[3J\033[H"
+
+    echo "============================================="
+    echo "  ${LABEL} (${WORKER_ACCOUNT}) [Unlimited Mode]"
+    echo "  Target URL : ${WORKER_URL}"
+    echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "============================================="
+    echo ""
+    echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."
+    echo ""
+
+    # Execute exactly 1 registration attempt per Python process, terminating directly on finish
+    "${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min 0 --delay-max 0 --timeout 60 ${EXTRA_ARGS}
     WORKER_STATUS=\$?
-    if [[ \$WORKER_STATUS -eq 42 ]]; then
+
+    if [[ \$WORKER_STATUS -eq 0 ]]; then
+        SUCCESS_COUNT=\$((SUCCESS_COUNT + 1))
         echo ""
-        echo "[${LABEL}] Rate limited (exit 42) -- restarting in 5s with fresh proxy IP..."
-        sleep 5
+        echo "[${LABEL}] ✅ Run #\$RUN_COUNT successful! Restarting fresh process in 2s..."
+    elif [[ \$WORKER_STATUS -eq 42 ]]; then
+        echo ""
+        echo "[${LABEL}] ⚠️ Rate limited (exit 42). Restarting with fresh residential IP in 3s..."
     else
         echo ""
-        echo "[${LABEL}] Process exited (code \$WORKER_STATUS) -- restarting in 5s..."
-        sleep 5
+        echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$WORKER_STATUS). Restarting fresh in 1s..."
     fi
+
+    # Clean up temporary browser data, screenshots, and orphan chromium temp data
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+
+    sleep 1
 done
 WORKER_EOF
 

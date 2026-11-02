@@ -446,24 +446,45 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
-echo "[${LABEL}] Starting 1 registration on dedicated residential IP..."
-echo ""
+RUN_COUNT=0
+SUCCESS_COUNT=0
 
-"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
-EXIT_CODE=\$?
-if [[ \$EXIT_CODE -eq 0 ]]; then
+while true; do
+    RUN_COUNT=\$((RUN_COUNT + 1))
+
+    # Clear terminal screen and scrollback buffer to prevent memory bloat
+    clear 2>/dev/null || printf "\033[2J\033[3J\033[H"
+
+    echo "============================================="
+    echo "  ${LABEL} (${WORKER_ACCOUNT}) [Unlimited Mode]"
+    echo "  Target URL : ${WORKER_URL}"
+    echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "============================================="
     echo ""
-    echo "[${LABEL}] ✅ Registration completed successfully on dedicated residential IP. Done."
-    exit 0
-elif [[ \$EXIT_CODE -eq 42 ]]; then
+    echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."
     echo ""
-    echo "[${LABEL}] Rate limited (code 42) -- exiting."
-    exit 42
-else
-    echo ""
-    echo "[${LABEL}] Process finished with code \$EXIT_CODE."
-    exit \$EXIT_CODE
-fi
+
+    # Execute exactly 1 registration attempt per Python process, terminating directly on finish
+    "${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --target-url "${WORKER_URL}" --delay-min 0 --delay-max 0 --worker-id "${LABEL}" --timeout 60 ${EXTRA_ARGS}
+    EXIT_CODE=\$?
+
+    if [[ \$EXIT_CODE -eq 0 ]]; then
+        SUCCESS_COUNT=\$((SUCCESS_COUNT + 1))
+        echo ""
+        echo "[${LABEL}] ✅ Run #\$RUN_COUNT successful! Restarting fresh process in 2s..."
+    elif [[ \$EXIT_CODE -eq 42 ]]; then
+        echo ""
+        echo "[${LABEL}] ⚠️ Rate limited (exit 42). Restarting with fresh residential IP in 3s..."
+    else
+        echo ""
+        echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$EXIT_CODE). Restarting fresh in 1s..."
+    fi
+
+    # Clean up temporary browser data, screenshots, and orphan chromium temp data
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+
+    sleep 1
+done
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"
