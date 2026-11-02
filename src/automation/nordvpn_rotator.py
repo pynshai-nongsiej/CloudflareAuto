@@ -16,6 +16,7 @@ import subprocess
 import platform
 import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -25,6 +26,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 AUTH_FILE = PROJECT_ROOT / ".nord_auth.txt"
 OVPN_CACHE_DIR = PROJECT_ROOT / "ovpn_configs"
 COUNTRIES_CACHE_FILE = OVPN_CACHE_DIR / "countries_cache.json"
+LOGS_DIR = PROJECT_ROOT / "logs"
+HISTORY_FILE = LOGS_DIR / "used_vpn_history.json"
 
 if SYSTEM == "Windows":
     TEMP_DIR = Path(tempfile.gettempdir())
@@ -87,9 +90,56 @@ SESSION_USED_STATIONS: set[str] = set()      # Station IPs
 SESSION_USED_IPS: set[str] = set()           # Verified external public IPs
 SESSION_ROTATION_COUNT: int = 0
 
+# Historical cross-session duplicate tracking: guarantees ZERO reuse of IPs/servers from previous sessions
+HISTORICAL_USED_IPS: set[str] = set()
+HISTORICAL_USED_SERVERS: set[str] = set()
+HISTORICAL_USED_STATIONS: set[str] = set()
+
+
+def load_vpn_history():
+    """Load previously used IPs, servers, and stations from disk across sessions."""
+    global HISTORICAL_USED_IPS, HISTORICAL_USED_SERVERS, HISTORICAL_USED_STATIONS
+    if not HISTORY_FILE.exists():
+        return
+    try:
+        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        HISTORICAL_USED_IPS.update(data.get("used_ips", []))
+        HISTORICAL_USED_SERVERS.update(data.get("used_servers", []))
+        HISTORICAL_USED_STATIONS.update(data.get("used_stations", []))
+    except Exception as e:
+        print(f"[!] Warning: Could not read {HISTORY_FILE}: {e}")
+
+
+def save_vpn_history(ip: str, hostname: str, station: Optional[str] = None):
+    """Persist used IP and server details to disk so they are never reused in future sessions."""
+    if ip and ip != "unknown":
+        HISTORICAL_USED_IPS.add(ip)
+    if hostname:
+        HISTORICAL_USED_SERVERS.add(hostname)
+    if station and station != "N/A":
+        HISTORICAL_USED_STATIONS.add(station)
+
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "used_ips": sorted(list(HISTORICAL_USED_IPS)),
+            "used_servers": sorted(list(HISTORICAL_USED_SERVERS)),
+            "used_stations": sorted(list(HISTORICAL_USED_STATIONS)),
+            "total_unique_ips": len(HISTORICAL_USED_IPS),
+            "total_unique_servers": len(HISTORICAL_USED_SERVERS),
+            "last_updated": datetime.now().isoformat(),
+        }
+        HISTORY_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[!] Warning: Could not save to {HISTORY_FILE}: {e}")
+
+
+# Initialize persistent historical used IP history on module load
+load_vpn_history()
+
 
 def reset_session_history():
-    """Reset session duplicate tracking."""
+    """Reset session duplicate tracking for a fresh session while preserving historical blacklist."""
     global SESSION_ROTATION_COUNT
     SESSION_USED_SERVERS.clear()
     SESSION_USED_LOCATIONS.clear()
@@ -239,10 +289,11 @@ def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | 
     if not all_cached:
         return None
 
-    # Filter out cached configs already connected to in this session
+    # Filter out cached configs already connected to in this session or previous sessions
     fresh_cached = [
         f for f in all_cached
         if f.name.split(".udp.")[0].split(".tcp.")[0] not in SESSION_USED_SERVERS
+        and f.name.split(".udp.")[0].split(".tcp.")[0] not in HISTORICAL_USED_SERVERS
     ]
     pool = fresh_cached if fresh_cached else all_cached
 
@@ -397,15 +448,15 @@ def select_random_server(
             except Exception:
                 pass
 
-    # Process and filter candidates: skip any server hostname or station IP already used in this session
+    # Process and filter candidates: skip any server hostname or station IP already used in this session or prior sessions
     valid_candidates = []
     for s in servers_batch:
         hostname = s.get("hostname", "")
         station = s.get("station", "")
 
-        if not hostname or hostname in SESSION_USED_SERVERS:
+        if not hostname or hostname in SESSION_USED_SERVERS or hostname in HISTORICAL_USED_SERVERS:
             continue
-        if station and station in SESSION_USED_STATIONS:
+        if station and (station in SESSION_USED_STATIONS or station in HISTORICAL_USED_STATIONS):
             continue
 
         loc = s.get("locations", [{}])[0]
@@ -463,8 +514,11 @@ def select_random_server(
     if cached:
         return cached
 
-    # Fallback 2: Verified fallback list avoiding session duplicates
-    unused_fallbacks = [f for f in FALLBACK_SERVERS if f["hostname"] not in SESSION_USED_SERVERS]
+    # Fallback 2: Verified fallback list avoiding session and historical duplicates
+    unused_fallbacks = [
+        f for f in FALLBACK_SERVERS
+        if f["hostname"] not in SESSION_USED_SERVERS and f["hostname"] not in HISTORICAL_USED_SERVERS
+    ]
     fb = random.choice(unused_fallbacks if unused_fallbacks else FALLBACK_SERVERS)
     loc_str = f"{fb.get('city')}, {fb.get('state')}, {fb['country']}"
     return {
@@ -935,9 +989,13 @@ def rotate_vpn(target_location: Optional[str] = None, max_attempts: int = 5) -> 
             curr_info = get_current_ip_info()
             candidate_ip = curr_info.get("ip")
 
-            # Check if valid external IP obtained, different from pre-rotation IP, and not used in session
+            # Check if valid external IP obtained, different from pre-rotation IP, and not used in this or previous sessions
             if candidate_ip and candidate_ip != "unknown":
-                if candidate_ip != pre_ip and candidate_ip not in SESSION_USED_IPS:
+                if (
+                    candidate_ip != pre_ip
+                    and candidate_ip not in SESSION_USED_IPS
+                    and candidate_ip not in HISTORICAL_USED_IPS
+                ):
                     verified_ip_info = curr_info
                     new_ip = candidate_ip
                     break
@@ -946,19 +1004,20 @@ def rotate_vpn(target_location: Optional[str] = None, max_attempts: int = 5) -> 
             curr_test_ip = get_current_ip_info().get("ip", "unknown")
             print(
                 f"[!] ⚠️ IP VERIFICATION FAILED: Public IP did not change! "
-                f"(Current: {curr_test_ip} == Pre: {pre_ip} or duplicate in session). "
+                f"(Current: {curr_test_ip} == Pre: {pre_ip} or duplicate from current/previous session). "
                 f"Disconnecting to prevent rate limits..."
             )
             disconnect_vpn()
-            last_error = f"Public IP did not change ({curr_test_ip} == {pre_ip})"
+            last_error = f"Public IP did not change or was duplicate ({curr_test_ip})"
             continue
 
-        # 5. Success! Record session usage to ensure zero duplicate servers or IPs
+        # 5. Success! Record session and historical usage to ensure zero duplicate servers or IPs
         SESSION_USED_SERVERS.add(hostname)
         SESSION_USED_IPS.add(new_ip)
         if station_ip and station_ip != "N/A":
             SESSION_USED_STATIONS.add(station_ip)
         SESSION_ROTATION_COUNT += 1
+        save_vpn_history(ip=new_ip, hostname=hostname, station=station_ip)
 
         verified_city = verified_ip_info.get("city") or server.get("city")
         verified_region = verified_ip_info.get("region") or server.get("state")
@@ -969,7 +1028,8 @@ def rotate_vpn(target_location: Optional[str] = None, max_attempts: int = 5) -> 
         print(f"  New Public IP  : {new_ip}")
         print(f"  Verified Geo   : {verified_city}, {verified_region}, {verified_country}")
         print(f"  ISP / Org      : {verified_ip_info.get('org', 'NordVPN')}")
-        print(f"  Total Session  : {len(SESSION_USED_IPS)} unique public IPs used")
+        print(f"  Total Session  : {len(SESSION_USED_IPS)} unique public IPs used in this session")
+        print(f"  All-Time Total : {len(HISTORICAL_USED_IPS)} unique public IPs recorded in history (0 duplicates)")
         print(f"{'=' * 64}\n")
 
         return {

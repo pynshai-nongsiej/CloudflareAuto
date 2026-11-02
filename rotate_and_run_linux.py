@@ -39,6 +39,11 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 
 ACCOUNTS = [
     {
+        "id": "1",
+        "email": "pn@gmail.com",
+        "url": "https://websurfer.1024tenbox.com/referral/XWUPKX2D",
+    },
+    {
         "id": "2",
         "email": "dd@gmail.com",
         "url": "https://websurfer.1024tenbox.com/referral/XUMZDQ5R",
@@ -48,23 +53,28 @@ ACCOUNTS = [
         "email": "jn@gmail.com",
         "url": "https://websurfer.1024tenbox.com/referral/75H3QGGK",
     },
+    {
+        "id": "4",
+        "email": "dai@gmail.com",
+        "url": "https://websurfer.1024tenbox.com/referral/8PCCMJ33",
+    },
 ]
 
 dashboard = RichDashboard(
     platform_name="Linux",
-    target_subtitle="Target Accounts: dd & jn (3 workers each)",
+    target_subtitle="Target Accounts: pn, dd, jn, dai (4 workers total)",
 )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Linux 6-Worker Runner (3 per refer: dd & jn) with Live Dashboard & NordVPN Auto-Rotator"
+        description="Linux 4-Worker Runner (pn, dd, jn, dai) with Live Dashboard & NordVPN Auto-Rotator"
     )
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=6,
-        help="Total number of workers distributed across accounts (default: 6, 3 for dd & 3 for jn)",
+        default=4,
+        help="Total number of workers distributed across accounts (default: 4, 1 for each of pn, dd, jn, dai)",
     )
     parser.add_argument(
         "--mode",
@@ -101,6 +111,18 @@ def parse_args():
         type=str,
         default=None,
         help="Target country name or ISO code for NordVPN (e.g. 'Germany', 'US')",
+    )
+    parser.add_argument(
+        "--session-cycles",
+        type=int,
+        default=30,
+        help="Number of rotation cycles per session before triggering cooldown (default: 30)",
+    )
+    parser.add_argument(
+        "--session-cooldown",
+        type=int,
+        default=600,
+        help="Cooldown duration in seconds after completing 30 cycles (default: 600s = 10 minutes)",
     )
     parser.add_argument(
         "--cooldown-min",
@@ -358,23 +380,50 @@ def main():
                     msg = f"Batch in progress ({active}/{total_workers} active sessions)"
                     render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
 
-            # 5. Cleanly close terminals and rotate immediately without cooldown
+            # 5. Cleanly close terminals and remove trigger flag
             close_all_terminals()
             clear_trigger_flag()
 
-            cooldown_min = min(args.cooldown_min, args.cooldown_max)
-            cooldown_max = max(args.cooldown_min, args.cooldown_max)
-            cooldown_seconds = random.randint(cooldown_min, cooldown_max) if cooldown_max > 0 else 0
+            # 6. Check if 30-cycle session milestone reached -> 10-minute cooldown
+            if cycle_count > 0 and cycle_count % args.session_cycles == 0:
+                session_num = cycle_count // args.session_cycles
+                cooldown_duration = args.session_cooldown  # default 600s = 10 minutes
 
-            if cooldown_seconds > 0:
-                cooldown_end = time.time() + cooldown_seconds
+                # Disconnect VPN during the 10-minute resting cooldown to restore normal host network
+                disconnect_vpn()
+
+                cooldown_end = time.time() + cooldown_duration
                 while time.time() < cooldown_end:
                     remaining = int(cooldown_end - time.time())
                     mins = remaining // 60
                     secs = remaining % 60
-                    msg = f"⏳ Cooldown ({mins}m {secs:02d}s remaining) before rotating to next location..."
-                    render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                    msg = (
+                        f"☕ Completed 30 cycles (Session #{session_num})! "
+                        f"10-min cooldown ({mins}m {secs:02d}s remaining) before starting fresh Session #{session_num + 1} with new random IPs..."
+                    )
+                    render_dashboard(
+                        cycle_count,
+                        start_time,
+                        {"ip": "Cooldown (Disconnected)", "country": "--", "city": "Resting...", "org": "None"},
+                        total_workers,
+                        status_msg=msg,
+                    )
                     time.sleep(1.0)
+            else:
+                # Normal inter-cycle cooldown (if configured by user)
+                cooldown_min = min(args.cooldown_min, args.cooldown_max)
+                cooldown_max = max(args.cooldown_min, args.cooldown_max)
+                cooldown_seconds = random.randint(cooldown_min, cooldown_max) if cooldown_max > 0 else 0
+
+                if cooldown_seconds > 0:
+                    cooldown_end = time.time() + cooldown_seconds
+                    while time.time() < cooldown_end:
+                        remaining = int(cooldown_end - time.time())
+                        mins = remaining // 60
+                        secs = remaining % 60
+                        msg = f"⏳ Cooldown ({mins}m {secs:02d}s remaining) before rotating to next location..."
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg=msg)
+                        time.sleep(1.0)
 
     except KeyboardInterrupt:
         sys.stdout.write("\n\n  🛑 SUPERVISOR STOPPED BY USER (Ctrl+C)\n")
