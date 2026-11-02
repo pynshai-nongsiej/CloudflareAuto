@@ -661,6 +661,7 @@ while true; do
     echo "  Target URL : ${WORKER_URL}"
     echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
     echo "  Cooldown   : ${COOLDOWN_BASE}-\$(( ${COOLDOWN_BASE} + 10 ))s staggered"
+    echo "  OTP Maint. : 3x Change Email Retry Enabled"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."

@@ -379,11 +379,11 @@ async def run_loop(args):
                 raise
             except OtpMaintenanceError as ome:
                 failures += 1
-                log_event(args, "otp_maintenance_skipped", {"message": str(ome)})
+                log_event(args, "otp_maintenance_exhausted", {"message": str(ome)})
                 print(f"\n{'=' * 60}")
-                print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE (Residential Proxy Mode)")
+                print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE")
                 print(f"     Details: {ome.message}")
-                print(f"  ⏭️ Skipping attempt (no retry on proxy to avoid rate limits & save bandwidth).")
+                print(f"  🔄 Change Email retries exhausted. Rotating to fresh residential IP...")
                 print(f"{'=' * 60}\n")
             except RateLimitError as rle:
                 failures += 1

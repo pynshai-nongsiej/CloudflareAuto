@@ -963,8 +963,12 @@ async def register_and_verify(
                 # Check if maintenance error appeared on login form while still stuck on /login
                 maint_early = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_early and "/otp" not in page.url:
-                    if is_proxy_active:
-                        log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Rotating residential IP...")
+                    log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Attempting resend...")
+                    try:
+                        retry_btn = await _find_send_otp_button(page)
+                        if retry_btn and await retry_btn.is_visible() and await retry_btn.is_enabled():
+                            await retry_btn.click()
+                    except Exception:
                         raise OtpMaintenanceError(maint_early)
 
                 # Check if OTP inputs appeared on current page
@@ -1007,9 +1011,6 @@ async def register_and_verify(
             # Quick check if maintenance error is immediately visible upon landing on OTP screen
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
-                if is_proxy_active:
-                    log(f"[!] ⚠️ Immediate OTP login maintenance error in residential proxy mode ({initial_maint}). Skipping run...")
-                    raise OtpMaintenanceError(initial_maint)
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
                 log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
                 await _handle_otp_maintenance_resend(
@@ -1050,9 +1051,6 @@ async def register_and_verify(
                 # 3. Check for OTP login maintenance error on OTP screen
                 maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_err:
-                    if is_proxy_active:
-                        log(f"[!] ⚠️ OTP login maintenance error in residential proxy mode ({maint_err}). Skipping run...")
-                        raise OtpMaintenanceError(maint_err)
                     if maintenance_retries < max_maintenance_retries:
                         maintenance_retries += 1
                         log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
@@ -1069,6 +1067,9 @@ async def register_and_verify(
                             log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
                         else:
                             log("[!] Could not complete Change Email resend cycle, continuing wait...")
+                    else:
+                        log(f"[!] ⚠️ Maximum Change Email retries ({max_maintenance_retries}) reached for OTP maintenance.")
+                        raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(2.0)
                 poll_attempt += 1
@@ -1107,9 +1108,6 @@ async def register_and_verify(
                 if not post_maint_handled:
                     maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                     if maint_err:
-                        if is_proxy_active:
-                            log(f"[!] ⚠️ OTP login maintenance error after OTP submission in residential proxy mode ({maint_err}). Skipping run...")
-                            raise OtpMaintenanceError(maint_err)
                         post_maint_handled = True
                         log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
                         log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
