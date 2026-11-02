@@ -106,20 +106,59 @@ class OtpMaintenanceError(Exception):
         self.message = message
 
 
+async def _human_click(page: Page, element_or_selector: Any, log: Optional[Callable] = None) -> None:
+    """Move mouse to element using an organic human path with micro-jitter before clicking.
+    Emits natural mousemove, pointerdown, and pointerup events to defeat anti-bot heuristics.
+    """
+    try:
+        elem = element_or_selector
+        if isinstance(element_or_selector, str):
+            elem = await page.wait_for_selector(element_or_selector, timeout=8000, state="visible")
+        if not elem:
+            return
+
+        box = await elem.bounding_box()
+        if not box or box["width"] <= 0 or box["height"] <= 0:
+            await elem.click()
+            return
+
+        # Target a random natural spot inside element (avoid robotic dead-center clicks)
+        target_x = box["x"] + box["width"] * random.uniform(0.25, 0.75)
+        target_y = box["y"] + box["height"] * random.uniform(0.30, 0.70)
+
+        # Move mouse across interpolated steps
+        steps = random.randint(10, 22)
+        await page.mouse.move(target_x, target_y, steps=steps)
+        await asyncio.sleep(random.uniform(0.04, 0.12))
+        await page.mouse.down()
+        await asyncio.sleep(random.uniform(0.05, 0.12))  # realistic button-down duration
+        await page.mouse.up()
+    except Exception:
+        try:
+            if hasattr(element_or_selector, "click"):
+                await element_or_selector.click()
+        except Exception:
+            pass
+
+
 async def _human_type(page: Page, selector_or_element, text: str, log: Callable):
-    """Type text with randomized delays to mimic human input."""
+    """Type text with randomized delays and micro-pauses to mimic human typing."""
     element = selector_or_element
     if isinstance(selector_or_element, str):
         element = await page.wait_for_selector(selector_or_element, timeout=10000)
 
-    await element.click()
-    await asyncio.sleep(random.uniform(0.1, 0.3))
+    await _human_click(page, element, log)
+    await asyncio.sleep(random.uniform(0.15, 0.35))
 
-    for char in text:
-        await page.keyboard.type(char, delay=random.randint(30, 120))
-        # Occasional micro-pause between characters
-        if random.random() < 0.1:
-            await asyncio.sleep(random.uniform(0.1, 0.3))
+    for idx, char in enumerate(text):
+        delay = random.randint(35, 110)
+        # Slower on special characters (@, .) like a real human searching for the key
+        if char in ("@", ".", "-", "_"):
+            delay += random.randint(40, 90)
+        await page.keyboard.type(char, delay=delay)
+        # Occasional micro-pause between typing chunks
+        if idx > 0 and idx % random.randint(3, 5) == 0 and random.random() < 0.25:
+            await asyncio.sleep(random.uniform(0.08, 0.22))
 
 
 async def _wait_for_email_input(page: Page, timeout: int = 25000) -> Any:
@@ -427,7 +466,7 @@ async def _click_change_email(page: Page, log: Callable) -> bool:
                 log(f"[+] Found Change Email element ({sel}: '{txt}'). Clicking...")
                 await elem.scroll_into_view_if_needed()
                 await asyncio.sleep(random.uniform(0.2, 0.4))
-                await elem.click()
+                await _human_click(page, elem, log)
                 return True
         except Exception:
             continue
@@ -477,7 +516,7 @@ async def _click_change_email(page: Page, log: Callable) -> bool:
             elem = await page.query_selector(sel)
             if elem and await elem.is_visible():
                 log(f"[+] Found Back element ({sel}). Clicking to return to email screen...")
-                await elem.click()
+                await _human_click(page, elem, log)
                 return True
         except Exception:
             continue
@@ -550,7 +589,7 @@ async def _handle_otp_maintenance_resend(
     try:
         send_btn = await _find_send_otp_button(page)
         log("[*] Clicking 'Send OTP' button again...")
-        await send_btn.click()
+        await _human_click(page, send_btn, log)
     except Exception as e:
         log(f"[!] Could not click Send OTP button on retry: {e}")
         return False
@@ -618,7 +657,7 @@ async def _enter_and_verify_otp(page: Page, otp_code: str, log: Callable) -> Non
                 if verify_btn and await verify_btn.is_visible() and await verify_btn.is_enabled():
                     log(f"[*] Clicking verify button ({sel})...")
                     await asyncio.sleep(random.uniform(0.2, 0.5))
-                    await verify_btn.click()
+                    await _human_click(page, verify_btn, log)
                     break
             except Exception:
                 continue
@@ -696,9 +735,9 @@ async def register_and_verify(
 
     host_platform = {"darwin": "darwin", "win32": "win32", "linux": "linux"}.get(sys.platform, None)
     fp = generate_fingerprint(prefer_platform=host_platform)
-    log(f"[*] Fingerprint: UA={fp.user_agent[:55]}...")
-    log(f"    Platform={fp.platform} | GPU={fp.webgl_renderer[:35]}...")
-    log(f"    TZ={fp.timezone} | Viewport={fp.viewport_width}x{fp.viewport_height} | "
+    log(f"[*] Fingerprint: UA={fp.user_agent[:60]}...")
+    log(f"    OS={fp.platform_name} ({fp.platform}) | GPU={fp.webgl_renderer[:35]}...")
+    log(f"    Screen={fp.screen_width}x{fp.screen_height} | Viewport={fp.viewport_width}x{fp.viewport_height} | "
         f"Scale={fp.device_scale_factor}")
 
     # Check for proxy configuration (explicit CLI argument, environment, or DataImpulse)
@@ -853,7 +892,7 @@ async def register_and_verify(
                         if btn:
                             log(f"[*] Found CTA button, clicking: {sel}")
                             await asyncio.sleep(random.uniform(0.5, 1.2))
-                            await btn.click()
+                            await _human_click(page, btn, log)
                             cta_clicked = True
                             break
                     except Exception:
@@ -901,7 +940,7 @@ async def register_and_verify(
             log(f"[*] Found email input, entering: {email_address}")
 
             # Clear any existing content first (Linux uses Control+a, macOS uses Meta+a)
-            await email_input.click()
+            await _human_click(page, email_input, log)
             select_all_key = "Meta+a" if sys.platform == "darwin" else "Control+a"
             await page.keyboard.press(select_all_key)
             await page.keyboard.press("Backspace")
@@ -922,7 +961,7 @@ async def register_and_verify(
 
             # Realistic pause before submitting email (like reviewing typed email)
             await asyncio.sleep(random.uniform(1.2, 2.5))
-            await send_btn.click()
+            await _human_click(page, send_btn, log)
 
             # ── Step 6: Wait for OTP page ──
             log("[*] Waiting for OTP verification screen...")

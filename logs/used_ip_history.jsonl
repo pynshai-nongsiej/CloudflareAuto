@@ -93,3 +93,11 @@
 {"ip": "64.93.82.193", "mode": "residential", "worker": "Worker-02", "platform": "darwin", "timestamp": "2026-11-02T16:55:21.301797"}
 {"ip": "175.29.130.107", "mode": "residential", "worker": "Worker-01", "platform": "darwin", "timestamp": "2026-11-02T16:55:36.486559"}
 {"ip": "69.167.30.6", "mode": "residential", "worker": "Worker-01", "platform": "darwin", "timestamp": "2026-11-02T17:00:24.605343"}
+{"ip": "187.40.231.147", "mode": "nordvpn", "worker": "supervisor", "platform": "darwin", "timestamp": "2026-11-02T18:01:39.339983"}
+{"ip": "99.137.155.210", "mode": "residential", "worker": "Worker-01", "platform": "darwin", "timestamp": "2026-11-02T18:02:44.947228"}
+{"ip": "76.148.111.109", "mode": "residential", "worker": "Worker-02", "platform": "darwin", "timestamp": "2026-11-02T18:02:52.240898"}
+{"ip": "69.170.123.180", "mode": "residential", "worker": "Worker-03", "platform": "darwin", "timestamp": "2026-11-02T18:03:08.946287"}
+{"ip": "67.246.242.211", "mode": "residential", "worker": "Worker-04", "platform": "darwin", "timestamp": "2026-11-02T18:03:25.645199"}
+{"ip": "178.83.25.77", "mode": "residential", "worker": "Worker-01", "platform": "darwin", "timestamp": "2026-11-02T18:04:34.467482"}
+{"ip": "69.130.236.162", "mode": "residential", "worker": "Worker-02", "platform": "darwin", "timestamp": "2026-11-02T18:04:51.485932"}
+{"ip": "51.241.73.89", "mode": "residential", "worker": "Worker-01", "platform": "darwin", "timestamp": "2026-11-02T18:16:58.438780"}
