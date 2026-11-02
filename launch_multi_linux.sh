@@ -37,6 +37,9 @@ TMUX_SESSION="cloudflare-auto"
 # Terminal window mode: default headed (visible terminal emulator windows)
 HEADLESS="${HEADLESS:-false}"
 
+# Single-run batch mode (default: false, runs unlimited loops unless launched by rotator)
+SINGLE_RUN="${SINGLE_RUN:-false}"
+
 # Browser execution mode: default headless (no Chromium GUI popups)
 BROWSER_HEADED="false"
 
@@ -48,6 +51,8 @@ for arg in "$@"; do
         HEADLESS="false"
     elif [[ "$arg" == "--browser-headed" || "$arg" == "--headed-browser" || "$arg" == "--show-browser" ]]; then
         BROWSER_HEADED="true"
+    elif [[ "$arg" == "--single-run" || "$arg" == "--batch" ]]; then
+        SINGLE_RUN="true"
     fi
 done
 
@@ -427,7 +432,39 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
         WORKER_ACCOUNT="$TARGET_EMAIL"
     fi
 
-    cat > "$WORKER_SCRIPT" <<WORKER_EOF
+    if [[ "$SINGLE_RUN" == "true" ]]; then
+        cat > "$WORKER_SCRIPT" <<WORKER_EOF
+#!/usr/bin/env bash
+printf '\033]0;${LABEL}\007'
+cd "${PROJECT_DIR}"
+
+echo ""
+echo "============================================="
+echo "  ${LABEL} (${WORKER_ACCOUNT}) [Batch Mode: 1 Run]"
+echo "  Target URL : ${WORKER_URL}"
+echo "============================================="
+echo ""
+echo "[${LABEL}] Starting single registration batch..."
+echo ""
+
+"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
+EXIT_CODE=\$?
+if [[ \$EXIT_CODE -eq 42 ]]; then
+    echo ""
+    echo "[${LABEL}] Rate limited (code 42) -- notifying supervisor for VPN rotation."
+    exit 42
+elif [[ \$EXIT_CODE -eq 0 ]]; then
+    echo ""
+    echo "[${LABEL}] ✅ Registration completed successfully (code 0). Batch task finished."
+    exit 0
+else
+    echo ""
+    echo "[${LABEL}] Process finished with code \$EXIT_CODE."
+    exit \$EXIT_CODE
+fi
+WORKER_EOF
+    else
+        cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 printf '\033]0;${LABEL}\007'
 cd "${PROJECT_DIR}"
@@ -455,6 +492,7 @@ while true; do
     sleep 5
 done
 WORKER_EOF
+    fi
 
     chmod +x "$WORKER_SCRIPT"
     echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}"

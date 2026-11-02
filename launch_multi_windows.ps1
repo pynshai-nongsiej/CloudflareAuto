@@ -27,6 +27,8 @@ param(
     [switch]$Headless = $true,
     [switch]$Headed,
     [switch]$BrowserHeaded,
+    [switch]$SingleRun,
+    [switch]$Batch,
     [string]$ExtraArgs = ""
 )
 
@@ -323,7 +325,36 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
         $wEmail = $TargetEmail
     }
 
-    $scriptContent = @"
+    if ($SingleRun -or $Batch -or ($env:SINGLE_RUN -eq "true")) {
+        $scriptContent = @"
+@echo off
+title $label
+chcp 65001 >nul 2>&1
+cd /d "$ProjectDir"
+
+echo.
+echo =============================================
+echo   $label ($wEmail) [Batch Mode: 1 Run]
+echo   Target URL : $wUrl
+echo =============================================
+echo.
+echo [$label] Starting single registration batch...
+echo.
+
+"$Python" main.py --mode $Mode --loop --count 1 --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --worker-id $label --timeout 120 $extraFlags
+if %ERRORLEVEL% equ 42 (
+    echo [$label] Rate limit exit triggered (code 42) -- notifying supervisor for VPN rotation.
+    exit 42
+)
+if %ERRORLEVEL% equ 0 (
+    echo [$label] Registration completed successfully (code 0). Batch task finished.
+    exit 0
+)
+echo [$label] Process exited with code %ERRORLEVEL%.
+exit %ERRORLEVEL%
+"@
+    } else {
+        $scriptContent = @"
 @echo off
 title $label
 chcp 65001 >nul 2>&1
@@ -351,6 +382,7 @@ echo [$label] Process exited -- restarting in 5s...
 timeout /t 5 /nobreak >nul
 goto loop_forever
 "@
+    }
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII
     Write-Host "  [$label]  grid=($col,$row)  account=$wEmail" -ForegroundColor Gray
 }
