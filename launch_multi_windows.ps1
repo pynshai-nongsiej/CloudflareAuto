@@ -340,16 +340,23 @@ echo [$label] Starting automation loop (mode=$Mode)...
 echo [$label] Referral Account: $wEmail
 echo.
 
-:loop_forever
-"$Python" main.py --mode $Mode --loop --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --worker-id $label --timeout 120 $extraFlags
+echo [$label] Starting 1 registration on dedicated residential IP...
+echo.
+
+"$Python" main.py --mode $Mode --loop --count 1 --target-url "$wUrl" --delay-min $DelayMin --delay-max $DelayMax --worker-id $label --timeout 120 $extraFlags
+if %ERRORLEVEL% equ 0 (
+    echo.
+    echo [$label] [OK] Registration completed successfully on dedicated residential IP. Done.
+    exit 0
+)
 if %ERRORLEVEL% equ 42 (
-    echo [$label] Rate limit exit triggered (code 42) -- finishing batch for VPN rotation.
+    echo.
+    echo [$label] Rate limit exit triggered (code 42) -- finishing.
     exit 42
 )
 echo.
-echo [$label] Process exited -- restarting in 5s...
-timeout /t 5 /nobreak >nul
-goto loop_forever
+echo [$label] Process finished with code %ERRORLEVEL%.
+exit %ERRORLEVEL%
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII
     Write-Host "  [$label]  grid=($col,$row)  account=$wEmail" -ForegroundColor Gray

@@ -90,11 +90,24 @@ def resolve_playwright_proxy(
 
     # Auto-rotate sticky residential session per registration if using DataImpulse
     if username and "dataimpulse" in server.lower() and "__sessid." not in username:
-        wid = worker_id or os.environ.get("WORKER_ID") or "W01"
-        clean_wid = "".join(c for c in wid if c.isalnum()) or "W"
-        token = uuid.uuid4().hex[:6]
+        # Determine platform offset so Mac, Linux, and Windows workers NEVER collide on session IDs
+        if sys.platform == "darwin":
+            platform_offset = 100
+        elif sys.platform.startswith("linux"):
+            platform_offset = 200
+        else:
+            platform_offset = 300
+
+        # Extract numeric digits from worker_id (e.g. Worker-01 -> 1, Worker-02 -> 2)
+        wid_nums = "".join(c for c in str(worker_id or os.environ.get("WORKER_ID") or "") if c.isdigit())
+        worker_num = int(wid_nums) if wid_nums else random.randint(1, 99)
+        worker_prefix = platform_offset + (worker_num % 100)
+
+        # Generate guaranteed unique, purely numeric session ID (<prefix><7_digits>)
+        # DataImpulse requires pure alphanumeric/numeric with no underscores, otherwise it defaults to the same IP!
+        session_id = (worker_prefix * 10000000) + random.randint(1000000, 9999999)
         ttl = os.environ.get("PROXY_SESSION_TTL", "10")
-        username = f"{username}__sessid.{clean_wid}_{token};sessttl.{ttl}"
+        username = f"{username}__sessid.{session_id};sessttl.{ttl}"
 
     proxy_cfg = {"server": server}
     if username:

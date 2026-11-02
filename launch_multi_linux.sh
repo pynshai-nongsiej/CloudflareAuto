@@ -446,17 +446,24 @@ echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
 echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
 echo ""
 
-while true; do
-    "${PYTHON}" main.py --mode ${MODE} --loop --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
-    EXIT_CODE=\$?
-    if [[ \$EXIT_CODE -eq 42 ]]; then
-        echo "[${LABEL}] Rate limit exit triggered (code 42) -- finishing batch for VPN rotation."
-        exit 42
-    fi
+echo "[${LABEL}] Starting 1 registration on dedicated residential IP..."
+echo ""
+
+"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --worker-id "${LABEL}" --timeout 120 ${EXTRA_ARGS}
+EXIT_CODE=\$?
+if [[ \$EXIT_CODE -eq 0 ]]; then
     echo ""
-    echo "[${LABEL}] Process exited -- restarting in 5s..."
-    sleep 5
-done
+    echo "[${LABEL}] ✅ Registration completed successfully on dedicated residential IP. Done."
+    exit 0
+elif [[ \$EXIT_CODE -eq 42 ]]; then
+    echo ""
+    echo "[${LABEL}] Rate limited (code 42) -- exiting."
+    exit 42
+else
+    echo ""
+    echo "[${LABEL}] Process finished with code \$EXIT_CODE."
+    exit \$EXIT_CODE
+fi
 WORKER_EOF
 
     chmod +x "$WORKER_SCRIPT"
