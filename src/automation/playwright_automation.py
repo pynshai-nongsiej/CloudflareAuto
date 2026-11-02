@@ -119,7 +119,13 @@ def resolve_playwright_proxy(
         # DataImpulse requires pure alphanumeric/numeric with no underscores, otherwise it defaults to the same IP!
         session_id = (worker_prefix * 10000000) + random.randint(1000000, 9999999)
         ttl = os.environ.get("PROXY_SESSION_TTL", "10")
-        username = f"{username}__sessid.{session_id};sessttl.{ttl}"
+
+        # Country targeting: default to Tier-1 countries ("us") for high OTP email delivery rates
+        target_country = os.environ.get("PROXY_COUNTRY", "us").lower().strip()
+        if target_country in ("any", "all", "none", "off", "0", ""):
+            username = f"{username}__sessid.{session_id};sessttl.{ttl}"
+        else:
+            username = f"{username}__cr.{target_country};sessid.{session_id};sessttl.{ttl}"
 
     proxy_cfg = {"server": server}
     if username:
@@ -128,7 +134,12 @@ def resolve_playwright_proxy(
         proxy_cfg["password"] = password
 
     masked_user = f"{username.split('__')[0][:6]}..." if username else ""
-    sess_tag = f" [Session: {username.split('__sessid.')[1].split(';')[0]}]" if "__sessid." in (username or "") else ""
+    if "sessid." in (username or ""):
+        sess_num = username.split("sessid.")[1].split(";")[0]
+        country_tag = f" [{username.split('__cr.')[1].split(';')[0].upper()}]" if "__cr." in (username or "") else ""
+        sess_tag = f"{country_tag} [Session: {sess_num}]"
+    else:
+        sess_tag = ""
     if log_fn:
         log_fn(f"[*] 🛡️ Routing browser traffic via Proxy: {server} (User: {masked_user}){sess_tag}")
     return proxy_cfg
@@ -980,13 +991,6 @@ async def register_and_verify(
                     log(f"[!] ⚠️ Rate limit encountered: {msg}")
                     raise RateLimitError(wait_sec, msg)
 
-                # Instant check: Did maintenance error appear on login form or transition?
-                maint_early = await _check_maintenance_error(page, maintenance_intercepted)
-                if maint_early:
-                    if is_proxy_active:
-                        log(f"[!] ⚠️ Instant OTP maintenance detected ({maint_early}). Aborting attempt immediately to save resources...")
-                        raise OtpMaintenanceError(maint_early)
-
                 # Fast check: Did URL navigate to /otp?
                 if "/otp" in page.url:
                     log(f"[+] Navigated to OTP page: {page.url} (took {elapsed}s)")
@@ -1001,6 +1005,13 @@ async def register_and_verify(
                     break
                 except Exception:
                     pass
+
+                # Check if maintenance error appeared on login form while still stuck on /login
+                maint_early = await _check_maintenance_error(page, maintenance_intercepted)
+                if maint_early and "/otp" not in page.url:
+                    if is_proxy_active:
+                        log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Rotating residential IP...")
+                        raise OtpMaintenanceError(maint_early)
 
                 # Check if OTP inputs appeared on current page
                 otp_inputs = await _find_otp_inputs(page)
@@ -1042,17 +1053,17 @@ async def register_and_verify(
             # Quick check if maintenance error is immediately visible upon landing on OTP screen
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
-                if is_proxy_active:
-                    log(f"[!] ⚠️ Immediate OTP login maintenance error in residential proxy mode ({initial_maint}). Skipping run to avoid rate limits...")
-                    raise OtpMaintenanceError(initial_maint)
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
                 log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                await _handle_otp_maintenance_resend(
+                resend_ok = await _handle_otp_maintenance_resend(
                     page=page,
                     email_address=email_address,
                     log=log,
                     rate_limit_intercepted=rate_limit_intercepted,
                 )
+                if not resend_ok and is_proxy_active:
+                    log("[!] ⚠️ Initial Change Email resend failed on proxy. Rotating IP...")
+                    raise OtpMaintenanceError(initial_maint)
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
@@ -1085,9 +1096,6 @@ async def register_and_verify(
                 # 3. Check for OTP login maintenance error on OTP screen
                 maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_err:
-                    if is_proxy_active:
-                        log(f"[!] ⚠️ OTP login maintenance error in residential proxy mode ({maint_err}). Skipping run to avoid rate limits...")
-                        raise OtpMaintenanceError(maint_err)
                     if maintenance_retries < max_maintenance_retries:
                         maintenance_retries += 1
                         log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
@@ -1103,7 +1111,14 @@ async def register_and_verify(
                             start_poll = time.time()
                             log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
                         else:
+                            if is_proxy_active:
+                                log(f"[!] ⚠️ Change email resend failed on proxy. Rotating residential IP...")
+                                raise OtpMaintenanceError(maint_err)
                             log("[!] Could not complete Change Email resend cycle, continuing wait...")
+                    else:
+                        if is_proxy_active:
+                            log(f"[!] ⚠️ OTP maintenance persisted after {max_maintenance_retries} resends. Rotating residential IP...")
+                            raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(2.0)
                 poll_attempt += 1
@@ -1142,9 +1157,6 @@ async def register_and_verify(
                 if not post_maint_handled:
                     maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                     if maint_err:
-                        if is_proxy_active:
-                            log(f"[!] ⚠️ OTP login maintenance error after OTP submission in residential proxy mode ({maint_err}). Skipping run to avoid rate limits...")
-                            raise OtpMaintenanceError(maint_err)
                         post_maint_handled = True
                         log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
                         log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
@@ -1168,6 +1180,8 @@ async def register_and_verify(
                                 log(f"[+] New OTP received: {otp_code}. Entering into inputs...")
                                 await _enter_and_verify_otp(page, otp_code, log)
                                 start_dash_wait = time.time()
+                        elif is_proxy_active:
+                            raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(1.0)
 
