@@ -353,13 +353,17 @@ echo.
 "$Python" main.py --mode $Mode --loop --count 1 --target-url "$wUrl" --delay-min 0 --delay-max 0 --worker-id $label --timeout 60 $extraFlags
 if %ERRORLEVEL% equ 0 (
     echo.
-    echo [$label] [OK] Registration successful! Restarting in 2s...
-)
-if %ERRORLEVEL% equ 42 (
+    echo [$label] [OK] Registration successful!
+) else if %ERRORLEVEL% equ 42 (
     echo.
-    echo [$label] Rate limited (code 42). Restarting with fresh IP in 3s...
+    echo [$label] Rate limited (code 42).
+) else (
+    echo.
+    echo [$label] Run finished with code %ERRORLEVEL%.
 )
-timeout /t 2 /nobreak >nul
+echo.
+echo [$label] Cooldown: 1 minute (60s) before next registration...
+timeout /t 60 /nobreak
 goto loop_forever
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII

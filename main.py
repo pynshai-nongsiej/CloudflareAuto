@@ -327,12 +327,28 @@ async def run_loop(args):
 
     print("=" * 60)
     print("  🔄 TENBOX AUTOMATION LOOP")
+    # Detect proxy configuration
+    proxy_disabled = (
+        getattr(args, "no_proxy", False)
+        or str(getattr(args, "proxy", "")).strip().lower() in ("none", "off", "false", "0", "direct")
+        or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
+        or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
+    )
+    proxy_active = (not proxy_disabled) and bool(
+        getattr(args, "proxy", None)
+        or os.environ.get("PROXY_SERVER")
+        or os.environ.get("DATAIMPULSE_LOGIN")
+        or os.environ.get("PROXY_HOST")
+    )
+
     print("=" * 60)
     print(f"  Mode:         {args.mode}")
     print(f"  Max runs:     {'unlimited' if max_runs == float('inf') else max_runs}")
     if delay_max > 0:
         delay_desc = f"{delay_min}-{delay_max}s ({delay_min//60}-{delay_max//60} min)" if delay_min >= 60 else f"{delay_min}-{delay_max}s"
         print(f"  Pacing:       {delay_desc} between runs")
+    elif proxy_active:
+        print(f"  Pacing:       1 minute (60s) cooldown after each run")
     else:
         print(f"  Pacing:       No cooldown (continuous)")
     if sys.platform == "darwin":
@@ -371,70 +387,51 @@ async def run_loop(args):
                 print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE (Residential Proxy Mode)")
                 print(f"     Details: {ome.message}")
                 print(f"  ⏭️ Skipping attempt (no retry on proxy to avoid rate limits & save bandwidth).")
-                print(f"  🔄 Next run will use a brand new residential IP in 2s...")
                 print(f"{'=' * 60}\n")
-                await asyncio.sleep(2)
-                continue
             except RateLimitError as rle:
                 failures += 1
                 log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
 
-                # If proxy mode is active, rotate to fresh residential IP immediately
-                proxy_disabled = (
-                    getattr(args, "no_proxy", False)
-                    or str(getattr(args, "proxy", "")).strip().lower() in ("none", "off", "false", "0", "direct")
-                    or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
-                    or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
-                )
-                proxy_active = (not proxy_disabled) and bool(
-                    getattr(args, "proxy", None)
-                    or os.environ.get("PROXY_SERVER")
-                    or os.environ.get("DATAIMPULSE_LOGIN")
-                    or os.environ.get("PROXY_HOST")
-                )
-
                 if proxy_active:
                     print(f"\n{'=' * 60}")
                     print(f"  ⚠️ Run #{run_number} Rate limited on current proxy IP: {rle.message}")
-                    print(f"  🔄 Proxy Mode Active: Instant rotation to fresh residential IP (no 15m cooldown)...")
+                    print(f"  🔄 Proxy Mode Active: Instant rotation to fresh residential IP...")
                     print(f"{'=' * 60}\n")
-                    await asyncio.sleep(3)
+                else:
+                    try:
+                        flag_file = Path("/tmp/cloudflare_rate_limit_triggered.flag")
+                        flag_file.write_text(f"rate_limited at {time.time()} by {args.target_url}\n")
+                    except Exception:
+                        pass
+
+                    wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 900
+                    wait_time += 30  # safety buffer
+                    resume_time = time.strftime("%H:%M:%S", time.localtime(time.time() + wait_time))
+                    mins = int(wait_time // 60)
+                    secs = int(wait_time % 60)
+                    print(f"\n{'=' * 60}")
+                    print(f"  ⚠️ Run #{run_number} RATE LIMITED BY TENBOX")
+                    print(f"     Details:        {rle.message}")
+                    print(f"     Cooldown:       {wait_time}s (~{mins}m {secs}s)")
+                    print(f"     Target Resume:  {resume_time}")
+                    print(f"{'=' * 60}")
+
+                    if getattr(args, "exit_on_rate_limit", False):
+                        print(f"  ⚡ Immediate exit triggered (--exit-on-rate-limit). Signal sent for VPN rotation.")
+                        sys.exit(42)
+
+                    # Periodic updates while waiting so user knows process is active
+                    remaining = wait_time
+                    while remaining > 0:
+                        step = min(remaining, 60)
+                        await asyncio.sleep(step)
+                        remaining -= step
+                        if remaining > 0:
+                            rem_m = int(remaining // 60)
+                            rem_s = int(remaining % 60)
+                            print(f"  ⏳ [Cooldown] {rem_m}m {rem_s}s remaining (resumes at {resume_time})...")
+                    print(f"\n  ✅ Rate limit cooldown complete! Resuming automation loop...\n")
                     continue
-
-                try:
-                    flag_file = Path("/tmp/cloudflare_rate_limit_triggered.flag")
-                    flag_file.write_text(f"rate_limited at {time.time()} by {args.target_url}\n")
-                except Exception:
-                    pass
-
-                wait_time = rle.wait_seconds if rle.wait_seconds > 0 else 900
-                wait_time += 30  # safety buffer
-                resume_time = time.strftime("%H:%M:%S", time.localtime(time.time() + wait_time))
-                mins = int(wait_time // 60)
-                secs = int(wait_time % 60)
-                print(f"\n{'=' * 60}")
-                print(f"  ⚠️ Run #{run_number} RATE LIMITED BY TENBOX")
-                print(f"     Details:        {rle.message}")
-                print(f"     Cooldown:       {wait_time}s (~{mins}m {secs}s)")
-                print(f"     Target Resume:  {resume_time}")
-                print(f"{'=' * 60}")
-
-                if getattr(args, "exit_on_rate_limit", False):
-                    print(f"  ⚡ Immediate exit triggered (--exit-on-rate-limit). Signal sent for VPN rotation.")
-                    sys.exit(42)
-
-                # Periodic updates while waiting so user knows process is active
-                remaining = wait_time
-                while remaining > 0:
-                    step = min(remaining, 60)
-                    await asyncio.sleep(step)
-                    remaining -= step
-                    if remaining > 0:
-                        rem_m = int(remaining // 60)
-                        rem_s = int(remaining % 60)
-                        print(f"  ⏳ [Cooldown] {rem_m}m {rem_s}s remaining (resumes at {resume_time})...")
-                print(f"\n  ✅ Rate limit cooldown complete! Resuming automation loop...\n")
-                continue
             except Exception as e:
                 failures += 1
                 log_event(args, "failure", {"error": str(e)[:120]})
@@ -445,15 +442,27 @@ async def run_loop(args):
                 print(f"  [Worker] Current IP rate-limited across fleet. Finishing batch session.")
                 sys.exit(42)
 
-            # Delay before next run (skip if last run or if delay_max is 0)
-            if run_number < max_runs and delay_max > 0:
-                delay = random.uniform(delay_min, delay_max)
+            # Cooldown delay before next run (skip if last run)
+            if run_number < max_runs:
+                if delay_max > 0:
+                    delay = random.uniform(delay_min, delay_max)
+                elif proxy_active:
+                    delay = 60.0  # 1-minute cooldown for residential proxies
+                else:
+                    delay = 0.0
+
                 if delay > 0:
                     mins = int(delay // 60)
                     secs = int(delay % 60)
                     time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
-                    print(f"\n  ⏳ Waiting {delay:.1f}s (~{time_str}) before next run...")
-                    await asyncio.sleep(delay)
+                    print(f"\n  ⏳ Cooldown: Waiting {delay:.0f}s ({time_str}) before next residential proxy run...")
+                    remaining = int(delay)
+                    while remaining > 0:
+                        step = min(remaining, 10)
+                        await asyncio.sleep(step)
+                        remaining -= step
+                        if remaining > 0 and remaining % 10 == 0:
+                            print(f"  ⏳ [Cooldown] {remaining}s remaining before run #{run_number + 1}...")
 
     except KeyboardInterrupt:
         print(f"\n\n{'=' * 60}")

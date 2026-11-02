@@ -301,6 +301,8 @@ echo "  Workers : $NUM_WINDOWS ($([[ "$ROUND_ROBIN" == "true" ]] && echo "1 per 
 echo "  Screen  : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 if (( DELAY_MAX > 0 )); then
     echo "  Pacing  : ${DELAY_MIN}-${DELAY_MAX}s between runs"
+elif [[ "$NETWORK_MODE" == "residential" ]]; then
+    echo "  Pacing  : 1 minute (60s) cooldown after each run"
 else
     echo "  Pacing  : No cooldown (continuous)"
 fi
@@ -479,19 +481,25 @@ while true; do
     if [[ \$WORKER_STATUS -eq 0 ]]; then
         SUCCESS_COUNT=\$((SUCCESS_COUNT + 1))
         echo ""
-        echo "[${LABEL}] ✅ Run #\$RUN_COUNT successful! Restarting fresh process in 2s..."
+        echo "[${LABEL}] ✅ Run #\$RUN_COUNT successful!"
     elif [[ \$WORKER_STATUS -eq 42 ]]; then
         echo ""
-        echo "[${LABEL}] ⚠️ Rate limited (exit 42). Restarting with fresh residential IP in 3s..."
+        echo "[${LABEL}] ⚠️ Rate limited (exit 42)."
     else
         echo ""
-        echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$WORKER_STATUS). Restarting fresh in 1s..."
+        echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$WORKER_STATUS)."
     fi
 
     # Clean up temporary browser data, screenshots, and orphan chromium temp data
     rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
 
-    sleep 1
+    echo ""
+    echo "[${LABEL}] ⏳ Cooldown: 1 minute (60s) before next residential proxy registration..."
+    for (( sec=60; sec>0; sec-- )); do
+        printf "\r[${LABEL}] ⏳ Cooldown: %2ds remaining before starting run #\$((RUN_COUNT + 1))..." "\$sec"
+        sleep 1
+    done
+    echo ""
 done
 WORKER_EOF
     fi
