@@ -270,3 +270,4 @@ def acquire_fresh_residential_proxy(
         "password": password,
         "session_id": session_id,
     }
+

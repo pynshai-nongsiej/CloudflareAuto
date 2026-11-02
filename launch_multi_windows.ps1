@@ -96,6 +96,10 @@ if ($Action -eq "stop" -or $args -contains "stop") {
 $RoundRobin = $false
 $TargetEmail = ""
 
+if ([string]::IsNullOrWhiteSpace($NetworkMode)) {
+    $NetworkMode = "residential"
+}
+
 # Handle parameter overrides if passed
 if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     $TargetUrl = $Account1Url
@@ -113,11 +117,17 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
     $TargetUrl = $Account4Url
     $TargetEmail = $Account4Email
     if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
-} elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute") {
+} elseif ($Account -eq "5" -or $Account -eq "all" -or $Account -eq "distribute" -or $Account -eq "scatter") {
     $RoundRobin = $true
-    $TargetEmail = "dd & jn (3 workers each = 6 total)"
-    $TargetUrl = "Distributed across dd & jn"
-    if ($NumWindows -le 0) { $NumWindows = 6 }
+    if ($NetworkMode -eq "residential") {
+        $TargetEmail = "4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+        $TargetUrl = "Distributed across pn, dd, jn, dai"
+        if ($NumWindows -le 0) { $NumWindows = 4 }
+    } else {
+        $TargetEmail = "dd & jn (3 workers each = 6 total)"
+        $TargetUrl = "Distributed across dd & jn"
+        if ($NumWindows -le 0) { $NumWindows = 6 }
+    }
 } elseif ($TargetUrl -ne "" -and $TargetUrl -match "^https?://") {
     $TargetEmail = "Custom URL"
     if ($NumWindows -le 0) { $NumWindows = $WorkersPerLink }
@@ -132,7 +142,11 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
         Write-Host "  [2] $Account3Email  ->  $Account3Url  ($WorkersPerLink workers)"
         Write-Host "  [3] $Account1Email  ->  $Account1Url  ($WorkersPerLink workers)"
         Write-Host "  [4] $Account4Email  ->  $Account4Url  ($WorkersPerLink workers)"
-        Write-Host "  [5] dd & jn         ->  3 workers each (6 total - Default for Windows)"
+        if ($NetworkMode -eq "residential") {
+            Write-Host "  [5] 4 Refer Links   ->  1 worker each: pn, dd, jn, dai (Default for Residential)"
+        } else {
+            Write-Host "  [5] dd & jn         ->  3 workers each (6 total - Default for Windows)"
+        }
         Write-Host "  [6] Custom URL      ->  [Enter your own referral link]"
         Write-Host "================================================================" -ForegroundColor Cyan
         $choice = Read-Host "Select option [1-6, Enter for default 5]"
@@ -161,9 +175,15 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
             }
             "5" {
                 $RoundRobin = $true
-                $TargetEmail = "dd & jn (3 workers each = 6 total)"
-                $TargetUrl = "Distributed across dd & jn"
-                if ($NumWindows -le 0) { $NumWindows = 6 }
+                if ($NetworkMode -eq "residential") {
+                    $TargetEmail = "4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                    $TargetUrl = "Distributed across pn, dd, jn, dai"
+                    if ($NumWindows -le 0) { $NumWindows = 4 }
+                } else {
+                    $TargetEmail = "dd & jn (3 workers each = 6 total)"
+                    $TargetUrl = "Distributed across dd & jn"
+                    if ($NumWindows -le 0) { $NumWindows = 6 }
+                }
             }
             "6" {
                 $customInput = Read-Host "Enter custom referral URL"
@@ -178,16 +198,28 @@ if ($Account -eq "1" -or $Account -eq "pn" -or $Account -eq "pn@gmail.com") {
             }
             default {
                 $RoundRobin = $true
-                $TargetEmail = "dd & jn (3 workers each = 6 total)"
-                $TargetUrl = "Distributed across dd & jn"
-                if ($NumWindows -le 0) { $NumWindows = 6 }
+                if ($NetworkMode -eq "residential") {
+                    $TargetEmail = "4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                    $TargetUrl = "Distributed across pn, dd, jn, dai"
+                    if ($NumWindows -le 0) { $NumWindows = 4 }
+                } else {
+                    $TargetEmail = "dd & jn (3 workers each = 6 total)"
+                    $TargetUrl = "Distributed across dd & jn"
+                    if ($NumWindows -le 0) { $NumWindows = 6 }
+                }
             }
         }
     } else {
         $RoundRobin = $true
-        $TargetEmail = "dd & jn (3 workers each = 6 total)"
-        $TargetUrl = "Distributed across dd & jn"
-        if ($NumWindows -le 0) { $NumWindows = 6 }
+        if ($NetworkMode -eq "residential") {
+            $TargetEmail = "4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+            $TargetUrl = "Distributed across pn, dd, jn, dai"
+            if ($NumWindows -le 0) { $NumWindows = 4 }
+        } else {
+            $TargetEmail = "dd & jn (3 workers each = 6 total)"
+            $TargetUrl = "Distributed across dd & jn"
+            if ($NumWindows -le 0) { $NumWindows = 6 }
+        }
     }
 }
 
@@ -278,14 +310,14 @@ Write-Host "================================================================" -F
 Write-Host "  Project   : $ProjectDir"
 Write-Host "  Python    : $Python"
 Write-Host "  Mode      : $Mode (--loop)"
-Write-Host "  Workers   : $NumWindows (arranged in $($Cols)x$($Rows) grid)"
+Write-Host "  Workers   : $NumWindows ($(if ($NetworkMode -eq 'residential') { '1 per refer link across 4 distinct accounts (pn, dd, jn, dai)' } else { "$WorkersPerLink per refer link" }), arranged in $($Cols)x$($Rows) grid)"
 Write-Host "  Screen    : $($ScreenW)x$($ScreenH) -> each win $($WinW)x$($WinH)"
 Write-Host "  Browser   : $(if ($BrowserHeaded) { 'Headed (UI visible)' } else { 'Headless' })"
 Write-Host "  Terminal  : $(if ($Headless) { 'Hidden Background' } else { 'Visible Windows' })"
 if ($DelayMax -gt 0) {
     Write-Host "  Pacing    : $DelayMin-$DelayMax`s between runs"
 } elseif ($NetworkMode -eq "residential") {
-    Write-Host "  Pacing    : 1 minute (60s) cooldown after each run"
+    Write-Host "  Pacing    : Staggered cooldown (Worker 1: ~55s, Worker 2: ~75s, Worker 3: ~95s, Worker 4: ~115s)"
 } else {
     Write-Host "  Pacing    : No cooldown (continuous)"
 }
@@ -316,14 +348,33 @@ for ($i = 0; $i -lt $NumWindows; $i++) {
     $y = $StartY + $TaskbarOffset + $Margin + ($row * ($WinH + $Margin))
 
     if ($RoundRobin) {
-        $accounts = @($Account2Url, $Account3Url)
-        $emails = @($Account2Email, $Account3Email)
-        $idx = [math]::Floor($i / $WorkersPerLink) % $accounts.Length
+        if ($NetworkMode -eq "residential") {
+            $accounts = @($Account1Url, $Account2Url, $Account3Url, $Account4Url)
+            $emails = @($Account1Email, $Account2Email, $Account3Email, $Account4Email)
+            $idx = $i % 4
+        } else {
+            $accounts = @($Account2Url, $Account3Url)
+            $emails = @($Account2Email, $Account3Email)
+            $idx = [math]::Floor($i / $WorkersPerLink) % $accounts.Length
+        }
         $wUrl = $accounts[$idx]
         $wEmail = $emails[$idx]
     } else {
         $wUrl = $TargetUrl
         $wEmail = $TargetEmail
+    }
+
+    $initStagger = $i * 15
+    $cooldownBase = 50 + ($i * 20)
+    $cooldownMax = $cooldownBase + 10
+
+    $initStaggerBlock = ""
+    if ($initStagger -gt 0) {
+        $initStaggerBlock = @"
+echo [$label] Initial launch stagger: waiting ${initStagger}s to avoid simultaneous requests...
+timeout /t $initStagger /nobreak
+echo.
+"@
     }
 
     $scriptContent = @"
@@ -342,12 +393,13 @@ echo.
 echo [$label] Starting automation loop (mode=$Mode)...
 echo [$label] Referral Account: $wEmail
 echo.
-
+$initStaggerBlock
 :loop_forever
 cls
 echo =============================================
-echo   $label ($wEmail) [Unlimited Mode]
+echo   $label ($wEmail) [Residential Proxy Mode]
 echo   Target URL : $wUrl
+echo   Cooldown   : $cooldownBase-$cooldownMax`s staggered
 echo =============================================
 echo.
 echo [$label] Starting registration on dedicated residential IP...
@@ -365,8 +417,9 @@ if %ERRORLEVEL% equ 0 (
     echo [$label] Run finished with code %ERRORLEVEL%.
 )
 echo.
-echo [$label] Cooldown: 1 minute (60s) before next registration...
-timeout /t 60 /nobreak
+set /a COOLDOWN=%RANDOM% %% 11 + $cooldownBase
+echo [$label] Staggered Cooldown: %COOLDOWN%s before next registration...
+timeout /t %COOLDOWN% /nobreak
 goto loop_forever
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII

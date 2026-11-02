@@ -180,11 +180,17 @@ elif [[ "$TARGET_ARG" == "4" || "$TARGET_ARG" == "jn" || "$TARGET_ARG" == "jn@gm
     TARGET_URL="$ACCOUNT_3_URL"
     TARGET_EMAIL="$ACCOUNT_3_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "both" || "$TARGET_ARG" == "round-robin" ]]; then
+elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "both" || "$TARGET_ARG" == "scatter" || "$TARGET_ARG" == "round-robin" ]]; then
     ROUND_ROBIN=true
-    TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-    TARGET_URL="Distributed across pn & dai"
-    NUM_WINDOWS="${NUM_WINDOWS:-6}"
+    if [[ "$NETWORK_MODE" == "residential" ]]; then
+        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+        TARGET_URL="Distributed across pn, dd, jn, dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-4}"
+    else
+        TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
+        TARGET_URL="Distributed across pn & dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-6}"
+    fi
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
@@ -192,42 +198,92 @@ elif [ -t 0 ]; then
     echo "================================================================"
     echo "   CloudflareAuto -- Select Target Referral Account (macOS)"
     echo "================================================================"
-    echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [2] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [3] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [4] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [5] pn & dai       ->  3 workers each (6 total - Default for macOS)"
-    echo "  [6] Custom URL     ->  [Enter your own referral link]"
+    if [[ "$NETWORK_MODE" == "residential" ]]; then
+        echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [5] 4 Distinct Refer Links -> 1 worker each (4 total: pn, dd, jn, dai) [Default]"
+        echo "  [6] Custom URL     ->  [Enter your own referral link]"
+    else
+        echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [2] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [3] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [4] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
+        echo "  [5] pn & dai       ->  3 workers each (6 total - Default for macOS NordVPN) [Default]"
+        echo "  [6] Custom URL     ->  [Enter your own referral link]"
+    fi
     echo "================================================================"
     read -r -p "Select option [1-6, Enter for default 5]: " USER_CHOICE
     USER_CHOICE="${USER_CHOICE:-5}"
 
     case "$USER_CHOICE" in
-        1|pn)
+        pn)
             TARGET_URL="$ACCOUNT_1_URL"
             TARGET_EMAIL="$ACCOUNT_1_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        2|dai)
+        dai)
             TARGET_URL="$ACCOUNT_4_URL"
             TARGET_EMAIL="$ACCOUNT_4_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        3|dd)
+        dd)
             TARGET_URL="$ACCOUNT_2_URL"
             TARGET_EMAIL="$ACCOUNT_2_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        4|jn)
+        jn)
             TARGET_URL="$ACCOUNT_3_URL"
             TARGET_EMAIL="$ACCOUNT_3_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        5|all|distribute|both)
+        1)
+            TARGET_URL="$ACCOUNT_1_URL"
+            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
+        2)
+            if [[ "$NETWORK_MODE" == "residential" ]]; then
+                TARGET_URL="$ACCOUNT_2_URL"
+                TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+            else
+                TARGET_URL="$ACCOUNT_4_URL"
+                TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+            fi
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
+        3)
+            if [[ "$NETWORK_MODE" == "residential" ]]; then
+                TARGET_URL="$ACCOUNT_3_URL"
+                TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+            else
+                TARGET_URL="$ACCOUNT_2_URL"
+                TARGET_EMAIL="$ACCOUNT_2_EMAIL"
+            fi
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
+        4)
+            if [[ "$NETWORK_MODE" == "residential" ]]; then
+                TARGET_URL="$ACCOUNT_4_URL"
+                TARGET_EMAIL="$ACCOUNT_4_EMAIL"
+            else
+                TARGET_URL="$ACCOUNT_3_URL"
+                TARGET_EMAIL="$ACCOUNT_3_EMAIL"
+            fi
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
+        5|all|distribute|both|scatter)
             ROUND_ROBIN=true
-            TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-            TARGET_URL="Distributed across pn & dai"
-            NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            if [[ "$NETWORK_MODE" == "residential" ]]; then
+                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                TARGET_URL="Distributed across pn, dd, jn, dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-4}"
+            else
+                TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
+                TARGET_URL="Distributed across pn & dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            fi
             ;;
         6|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
@@ -237,17 +293,29 @@ elif [ -t 0 ]; then
             ;;
         *)
             ROUND_ROBIN=true
-            TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-            TARGET_URL="Distributed across pn & dai"
-            NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            if [[ "$NETWORK_MODE" == "residential" ]]; then
+                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                TARGET_URL="Distributed across pn, dd, jn, dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-4}"
+            else
+                TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
+                TARGET_URL="Distributed across pn & dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            fi
             ;;
     esac
 else
-    # Non-interactive fallback default: pn & dai distributed (6 workers)
+    # Non-interactive fallback default
     ROUND_ROBIN=true
-    TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-    TARGET_URL="Distributed across pn & dai"
-    NUM_WINDOWS="${NUM_WINDOWS:-6}"
+    if [[ "$NETWORK_MODE" == "residential" ]]; then
+        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+        TARGET_URL="Distributed across pn, dd, jn, dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-4}"
+    else
+        TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
+        TARGET_URL="Distributed across pn & dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-6}"
+    fi
 fi
 
 # Clean up any old worker scripts and temporary screenshots
@@ -297,12 +365,12 @@ echo "  Project : $PROJECT_DIR"
 echo "  Python  : $PYTHON"
 echo "  Mode    : $MODE (--loop)"
 echo "  Network : $([[ "$NETWORK_MODE" == "residential" ]] && echo "Residential Proxy (DataImpulse - Dynamic sticky IP per run)" || echo "NordVPN / Direct (Host Network)")"
-echo "  Workers : $NUM_WINDOWS (${WORKERS_PER_LINK} per refer link, ${COLS}x${ROWS} grid)"
+echo "  Workers : $NUM_WINDOWS ($([[ "$NETWORK_MODE" == "residential" ]] && echo "1 per refer link across 4 distinct accounts (pn, dd, jn, dai)" || echo "${WORKERS_PER_LINK} per refer link"), ${COLS}x${ROWS} grid)"
 echo "  Screen  : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 if (( DELAY_MAX > 0 )); then
     echo "  Pacing  : ${DELAY_MIN}-${DELAY_MAX}s between runs"
 elif [[ "$NETWORK_MODE" == "residential" ]]; then
-    echo "  Pacing  : 1 minute (60s) cooldown after each run"
+    echo "  Pacing  : Staggered cooldown (Worker 1: ~55s, Worker 2: ~75s, Worker 3: ~95s, Worker 4: ~115s)"
 else
     echo "  Pacing  : No cooldown (continuous)"
 fi
@@ -335,9 +403,15 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
 
     if [[ "$ROUND_ROBIN" == "true" ]]; then
-        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_4_URL")
-        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_4_EMAIL")
-        IDX=$(( (i / WORKERS_PER_LINK) % ${#ACCOUNTS[@]} ))
+        if [[ "$NETWORK_MODE" == "residential" ]]; then
+            ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+            EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+            IDX=$(( i % 4 ))
+        else
+            ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_4_URL")
+            EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_4_EMAIL")
+            IDX=$(( (i / WORKERS_PER_LINK) % ${#ACCOUNTS[@]} ))
+        fi
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
         ACC_GROUP=$IDX
@@ -444,10 +518,13 @@ WORKER_EOF
 
     else
         # Default: Residential Proxy Mode
+        INIT_STAGGER=$(( i * 15 ))
+        COOLDOWN_BASE=$(( 50 + i * 20 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
+export WORKER_INDEX="${i}"
 export NETWORK_MODE="residential"
 export USE_PROXY="true"
 
@@ -459,6 +536,11 @@ cd "${PROJECT_DIR}"
 RUN_COUNT=0
 SUCCESS_COUNT=0
 
+if [[ ${INIT_STAGGER} -gt 0 ]]; then
+    echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s to avoid simultaneous requests..."
+    sleep ${INIT_STAGGER}
+fi
+
 while true; do
     RUN_COUNT=\$((RUN_COUNT + 1))
 
@@ -469,6 +551,7 @@ while true; do
     echo "  ${LABEL} (${WORKER_ACCOUNT}) [Residential Proxy Mode]"
     echo "  Target URL : ${WORKER_URL}"
     echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "  Cooldown   : ${COOLDOWN_BASE}-\$(( ${COOLDOWN_BASE} + 10 ))s staggered"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."
@@ -493,9 +576,10 @@ while true; do
     # Clean up temporary browser data, screenshots, and orphan chromium temp data
     rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
 
+    COOLDOWN=\$(( ${COOLDOWN_BASE} + RANDOM % 11 ))
     echo ""
-    echo "[${LABEL}] ⏳ Cooldown: 1 minute (60s) before next residential proxy registration..."
-    for (( sec=60; sec>0; sec-- )); do
+    echo "[${LABEL}] ⏳ Staggered Cooldown: \${COOLDOWN}s before next residential proxy registration..."
+    for (( sec=COOLDOWN; sec>0; sec-- )); do
         printf "\r[${LABEL}] ⏳ Cooldown: %2ds remaining before starting run #\$((RUN_COUNT + 1))..." "\$sec"
         sleep 1
     done

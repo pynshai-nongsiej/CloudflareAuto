@@ -447,7 +447,15 @@ async def run_loop(args):
                 if delay_max > 0:
                     delay = random.uniform(delay_min, delay_max)
                 elif proxy_active:
-                    delay = 60.0  # 1-minute cooldown for residential proxies
+                    # Staggered cooldown per worker (Worker 1: 50-60s, Worker 2: 70-80s, Worker 3: 90-100s, Worker 4: 110-120s)
+                    worker_idx = 0
+                    if getattr(args, "worker_id", ""):
+                        import re
+                        m = re.search(r'\d+', str(args.worker_id))
+                        if m:
+                            worker_idx = max(0, int(m.group(0)) - 1)
+                    base_delay = 50.0 + (worker_idx % 4) * 20.0
+                    delay = base_delay + random.uniform(0.0, 10.0)
                 else:
                     delay = 0.0
 
