@@ -64,84 +64,18 @@ def resolve_playwright_proxy(
             log_fn("[*] 🌐 Network Mode: Direct / NordVPN (No Proxy). Routing traffic via host network interface.")
         return None
 
+    from src.automation.ip_tracker import acquire_fresh_residential_proxy
+
     raw_proxy = proxy_arg or os.environ.get("PROXY_SERVER")
-    username = os.environ.get("PROXY_USER")
-    password = os.environ.get("PROXY_PASS")
-    server = None
-
-    if raw_proxy:
-        if "://" not in raw_proxy:
-            raw_proxy = f"http://{raw_proxy}"
-        parsed = urlparse(raw_proxy)
-        if parsed.scheme and parsed.hostname:
-            port_part = f":{parsed.port}" if parsed.port else ""
-            server = f"{parsed.scheme}://{parsed.hostname}{port_part}"
-            if parsed.username:
-                username = parsed.username
-            if parsed.password:
-                password = parsed.password
-        else:
-            server = raw_proxy
-    elif os.environ.get("PROXY_HOST"):
-        host = os.environ.get("PROXY_HOST")
-        port = os.environ.get("PROXY_PORT", "823")
-        server = f"http://{host}:{port}"
-    else:
-        # Default DataImpulse credentials
-        default_host = os.environ.get("DATAIMPULSE_HOST", "gw.dataimpulse.com")
-        default_port = os.environ.get("DATAIMPULSE_PORT", "823")
-        default_user = os.environ.get("DATAIMPULSE_LOGIN", "2490cf77ff2b92918641")
-        default_pass = os.environ.get("DATAIMPULSE_PASS", "6b184f3f8c527d2e")
-        if default_user and default_pass:
-            server = f"http://{default_host}:{default_port}"
-            username = default_user
-            password = default_pass
-
-    if not server:
+    proxy_info = acquire_fresh_residential_proxy(raw_proxy=raw_proxy, worker_id=worker_id, log_fn=log_fn)
+    if not proxy_info:
         return None
 
-    # Auto-rotate sticky residential session per registration if using DataImpulse
-    if username and "dataimpulse" in server.lower() and "__sessid." not in username:
-        # Determine platform offset so Mac, Linux, and Windows workers NEVER collide on session IDs
-        if sys.platform == "darwin":
-            platform_offset = 100
-        elif sys.platform.startswith("linux"):
-            platform_offset = 200
-        else:
-            platform_offset = 300
-
-        # Extract numeric digits from worker_id (e.g. Worker-01 -> 1, Worker-02 -> 2)
-        wid_nums = "".join(c for c in str(worker_id or os.environ.get("WORKER_ID") or "") if c.isdigit())
-        worker_num = int(wid_nums) if wid_nums else random.randint(1, 99)
-        worker_prefix = platform_offset + (worker_num % 100)
-
-        # Generate guaranteed unique, purely numeric session ID (<prefix><7_digits>)
-        # DataImpulse requires pure alphanumeric/numeric with no underscores, otherwise it defaults to the same IP!
-        session_id = (worker_prefix * 10000000) + random.randint(1000000, 9999999)
-        ttl = os.environ.get("PROXY_SESSION_TTL", "10")
-
-        # Country targeting: default to Tier-1 countries ("us") for high OTP email delivery rates
-        target_country = os.environ.get("PROXY_COUNTRY", "us").lower().strip()
-        if target_country in ("any", "all", "none", "off", "0", ""):
-            username = f"{username}__sessid.{session_id};sessttl.{ttl}"
-        else:
-            username = f"{username}__cr.{target_country};sessid.{session_id};sessttl.{ttl}"
-
-    proxy_cfg = {"server": server}
-    if username:
-        proxy_cfg["username"] = username
-    if password:
-        proxy_cfg["password"] = password
-
-    masked_user = f"{username.split('__')[0][:6]}..." if username else ""
-    if "sessid." in (username or ""):
-        sess_num = username.split("sessid.")[1].split(";")[0]
-        country_tag = f" [{username.split('__cr.')[1].split(';')[0].upper()}]" if "__cr." in (username or "") else ""
-        sess_tag = f"{country_tag} [Session: {sess_num}]"
-    else:
-        sess_tag = ""
-    if log_fn:
-        log_fn(f"[*] 🛡️ Routing browser traffic via Proxy: {server} (User: {masked_user}){sess_tag}")
+    proxy_cfg = {
+        "server": proxy_info["server"],
+        "username": proxy_info["username"],
+        "password": proxy_info["password"],
+    }
     return proxy_cfg
 
 TARGET_URL = (

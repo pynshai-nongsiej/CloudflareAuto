@@ -285,7 +285,7 @@ Write-Host "  Terminal  : $(if ($Headless) { 'Hidden Background' } else { 'Visib
 if ($DelayMax -gt 0) {
     Write-Host "  Pacing    : $DelayMin-$DelayMax`s between runs"
 } elseif ($NetworkMode -eq "residential") {
-    Write-Host "  Pacing    : Random 25-30s cooldown after each run"
+    Write-Host "  Pacing    : 1 minute (60s) cooldown after each run"
 } else {
     Write-Host "  Pacing    : No cooldown (continuous)"
 }
@@ -365,9 +365,8 @@ if %ERRORLEVEL% equ 0 (
     echo [$label] Run finished with code %ERRORLEVEL%.
 )
 echo.
-set /a CD_SEC=%RANDOM% %% 6 + 25
-echo [$label] Cooldown: %CD_SEC%s (random 25-30s) before next registration...
-timeout /t %CD_SEC% /nobreak >nul
+echo [$label] Cooldown: 1 minute (60s) before next registration...
+timeout /t 60 /nobreak
 goto loop_forever
 "@
     Set-Content -Path $workerScript -Value $scriptContent -Encoding ASCII

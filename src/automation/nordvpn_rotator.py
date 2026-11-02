@@ -99,6 +99,11 @@ HISTORICAL_USED_STATIONS: set[str] = set()
 def load_vpn_history():
     """Load previously used IPs, servers, and stations from disk across sessions."""
     global HISTORICAL_USED_IPS, HISTORICAL_USED_SERVERS, HISTORICAL_USED_STATIONS
+    try:
+        from src.automation.ip_tracker import load_all_used_ips
+        HISTORICAL_USED_IPS.update(load_all_used_ips())
+    except Exception:
+        pass
     if not HISTORY_FILE.exists():
         return
     try:
@@ -118,6 +123,13 @@ def save_vpn_history(ip: str, hostname: str, station: Optional[str] = None):
         HISTORICAL_USED_SERVERS.add(hostname)
     if station and station != "N/A":
         HISTORICAL_USED_STATIONS.add(station)
+
+    try:
+        from src.automation.ip_tracker import record_used_ip
+        if ip and ip != "unknown":
+            record_used_ip(ip, mode="nordvpn", worker_id="supervisor")
+    except Exception:
+        pass
 
     try:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)

@@ -68,7 +68,10 @@ Thumbs.db
 
 # Local tool caches
 .opencode/
-logs/
+logs/*
+!logs/used_ip_history.jsonl
+!logs/used_residential_ip_history.json
+!logs/used_vpn_history.json
 rate_limit_stats.json
 scratch/
 ovpn_configs/
