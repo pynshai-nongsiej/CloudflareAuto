@@ -47,11 +47,23 @@ def resolve_playwright_proxy(
     """Resolve Playwright proxy configuration dictionary with automatic residential rotation.
 
     Hierarchy:
+      0. Explicit disable via proxy_arg='none'/'off' or NETWORK_MODE='vpn'/'nordvpn' or USE_PROXY='0'/'false'
       1. Explicit CLI argument --proxy
       2. Environment variable PROXY_SERVER (e.g. http://user:pass@host:port or http://host:port)
       3. Environment variables PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS
-      4. Default to DataImpulse credentials if configured.
+      4. Default to DataImpulse credentials if configured and not explicitly disabled.
     """
+    # Check if proxy is explicitly disabled (e.g. for NordVPN or direct connection)
+    if (
+        (proxy_arg and str(proxy_arg).strip().lower() in ("none", "off", "no", "false", "0", "disabled", "direct"))
+        or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
+        or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
+        or os.environ.get("NO_PROXY_OVERRIDE", "").strip().lower() in ("1", "true", "yes")
+    ):
+        if log_fn:
+            log_fn("[*] 🌐 Network Mode: Direct / NordVPN (No Proxy). Routing traffic via host network interface.")
+        return None
+
     raw_proxy = proxy_arg or os.environ.get("PROXY_SERVER")
     username = os.environ.get("PROXY_USER")
     password = os.environ.get("PROXY_PASS")

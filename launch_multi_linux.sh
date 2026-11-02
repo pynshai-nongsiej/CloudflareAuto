@@ -40,7 +40,12 @@ HEADLESS="${HEADLESS:-false}"
 # Browser execution mode: default headless (no Chromium GUI popups)
 BROWSER_HEADED="false"
 
-# Parse flags for headless vs headed
+# Network mode: default unset (will prompt interactively or default to residential)
+NETWORK_MODE="${NETWORK_MODE:-}"
+SUPERVISOR_RUN="${SUPERVISOR_RUN:-0}"
+
+# Parse flags and positional arguments
+TARGET_ARG=""
 for arg in "$@"; do
     if [[ "$arg" == "--headless" ]]; then
         HEADLESS="true"
@@ -48,6 +53,14 @@ for arg in "$@"; do
         HEADLESS="false"
     elif [[ "$arg" == "--browser-headed" || "$arg" == "--headed-browser" || "$arg" == "--show-browser" ]]; then
         BROWSER_HEADED="true"
+    elif [[ "$arg" == "--residential" || "$arg" == "--proxy" ]]; then
+        NETWORK_MODE="residential"
+    elif [[ "$arg" == "--vpn" || "$arg" == "--nord" || "$arg" == "--nordvpn" ]]; then
+        NETWORK_MODE="vpn"
+    elif [[ "$arg" == "--standalone" || "$arg" == "--direct-vpn" || "$arg" == "--direct" ]]; then
+        NETWORK_MODE="standalone"
+    elif [[ "$arg" != "stop" && "$arg" != -* && -z "$TARGET_ARG" ]]; then
+        TARGET_ARG="$arg"
     fi
 done
 
@@ -69,7 +82,7 @@ ACCOUNT_4_URL="https://websurfer.1024tenbox.com/referral/8PCCMJ33"
 ACCOUNT_4_EMAIL="dai@gmail.com"
 
 # ── Stop Command ─────────────────────────────────────────────
-if [[ "${1:-}" == "stop" ]]; then
+if [[ "${1:-}" == "stop" || "${2:-}" == "stop" ]]; then
     echo "================================================================"
     echo "  Stopping all CloudflareAuto workers on Linux..."
     echo "================================================================"
@@ -102,39 +115,95 @@ if [[ "${1:-}" == "stop" ]]; then
     exit 0
 fi
 
+# ── Network Mode Selection ───────────────────────────────────
+if [[ -z "$NETWORK_MODE" && "$SUPERVISOR_RUN" != "1" ]]; then
+    if [ -t 0 ]; then
+        echo "================================================================"
+        echo "   CloudflareAuto -- Select Network Engine (Linux)"
+        echo "================================================================"
+        echo "  [1] Residential Proxy (DataImpulse) [Default]"
+        echo "      • Dedicated rotating residential IP per worker/run"
+        echo "      • Instant skip (<1s) on OTP maintenance (no waiting)"
+        echo "      • Continuous auto-cleaning unlimited loop"
+        echo "      • No device VPN disconnects or OS routing changes"
+        echo ""
+        echo "  [2] NordVPN Auto-Rotator (OpenVPN Supervisor)"
+        echo "      • Full-device VPN tunnel across 7,100+ global servers"
+        echo "      • 3x Change Email retry on OTP maintenance"
+        echo "      • Live Rich dashboard & server auto-rotation on rate limit"
+        echo ""
+        echo "  [3] NordVPN Standalone (No Proxy, Direct Device Tunnel)"
+        echo "      • Runs on your current VPN connection without supervisor"
+        echo "      • 3x Change Email retry on OTP maintenance"
+        echo "================================================================"
+        read -r -p "Select network option [1-3, Enter for default 1]: " NET_CHOICE
+        NET_CHOICE="${NET_CHOICE:-1}"
+        case "$NET_CHOICE" in
+            1|res|residential|proxy)
+                NETWORK_MODE="residential"
+                ;;
+            2|vpn|nord|nordvpn|supervisor)
+                NETWORK_MODE="vpn"
+                ;;
+            3|direct|standalone)
+                NETWORK_MODE="standalone"
+                ;;
+            *)
+                NETWORK_MODE="residential"
+                ;;
+        esac
+    else
+        NETWORK_MODE="residential"
+    fi
+fi
+
+# If NordVPN supervisor is requested and not already under supervisor, hand off
+if [[ "$NETWORK_MODE" == "vpn" && "$SUPERVISOR_RUN" != "1" ]]; then
+    echo ""
+    echo "================================================================"
+    echo "  🚀 Starting NordVPN Auto-Rotating Supervisor for Linux..."
+    echo "================================================================"
+    echo "  • OpenVPN connection management"
+    echo "  • Automatic location rotation on rate limit (exit 42)"
+    echo "  • 3x Change Email retry on OTP maintenance"
+    echo "  • Real-time Rich dashboard"
+    echo "================================================================"
+    echo ""
+    exec "$PROJECT_DIR/run_linux_auto_rotate.sh" "$@"
+fi
+
 # ── Account Selection ────────────────────────────────────────
 ROUND_ROBIN=false
 TARGET_URL=""
 TARGET_EMAIL=""
 
-# Check if passed as first argument
-ARG1="${1:-}"
-if [[ "$ARG1" =~ ^https?:// ]]; then
-    TARGET_URL="$ARG1"
+# Check if passed as argument
+if [[ "$TARGET_ARG" =~ ^https?:// ]]; then
+    TARGET_URL="$TARGET_ARG"
     TARGET_EMAIL="Custom Account"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$ARG1" == "1" || "$ARG1" == "pn" || "$ARG1" == "pn@gmail.com" ]]; then
-    TARGET_URL="$ACCOUNT_1_URL"
-    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
-    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$ARG1" == "2" || "$ARG1" == "dd" || "$ARG1" == "dd@gmail.com" ]]; then
+elif [[ "$TARGET_ARG" == "1" || "$TARGET_ARG" == "dd" || "$TARGET_ARG" == "dd@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_2_URL"
     TARGET_EMAIL="$ACCOUNT_2_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$ARG1" == "3" || "$ARG1" == "jn" || "$ARG1" == "jn@gmail.com" ]]; then
+elif [[ "$TARGET_ARG" == "2" || "$TARGET_ARG" == "jn" || "$TARGET_ARG" == "jn@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_3_URL"
     TARGET_EMAIL="$ACCOUNT_3_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$ARG1" == "4" || "$ARG1" == "dai" || "$ARG1" == "dai@gmail.com" ]]; then
+elif [[ "$TARGET_ARG" == "3" || "$TARGET_ARG" == "pn" || "$TARGET_ARG" == "pn@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_1_URL"
+    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+elif [[ "$TARGET_ARG" == "4" || "$TARGET_ARG" == "dai" || "$TARGET_ARG" == "dai@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_4_URL"
     TARGET_EMAIL="$ACCOUNT_4_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$ARG1" == "5" || "$ARG1" == "all" || "$ARG1" == "distribute" || "$ARG1" == "round-robin" ]]; then
+elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "round-robin" ]]; then
     ROUND_ROBIN=true
     TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
     TARGET_URL="Distributed across dd & jn"
     NUM_WINDOWS="${NUM_WINDOWS:-6}"
-elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
+elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_2_URL" ]]; then
     TARGET_EMAIL="Custom URL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [ -t 0 ]; then
@@ -387,6 +456,7 @@ echo "================================================================"
 echo "  Project   : $PROJECT_DIR"
 echo "  Python    : $PYTHON"
 echo "  Mode      : $MODE (--loop)"
+echo "  Network   : $([[ "$NETWORK_MODE" == "residential" ]] && echo "Residential Proxy (DataImpulse - Dynamic sticky IP per run)" || echo "NordVPN / Direct (Host Network)")"
 echo "  Workers   : $NUM_WINDOWS (arranged in ${COLS}x${ROWS} grid)"
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
@@ -427,24 +497,107 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
         WORKER_ACCOUNT="$TARGET_EMAIL"
     fi
 
-    cat > "$WORKER_SCRIPT" <<WORKER_EOF
+    if [[ "$NETWORK_MODE" == "vpn" ]]; then
+        cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
+export NETWORK_MODE="vpn"
+export USE_PROXY="false"
 
-printf '\033]0;${LABEL}\007'
+printf '\033]0;${LABEL}\007' 2>/dev/null || true
 cd "${PROJECT_DIR}"
 
 echo ""
 echo "============================================="
-echo "  ${LABEL} (${WORKER_ACCOUNT})"
+echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Mode]"
 echo "  Target URL : ${WORKER_URL}"
+echo "  Network    : NordVPN Host Tunnel (No Proxy)"
+echo "  OTP Maint. : 3x Change Email Retry Enabled"
 echo "============================================="
+echo ""
+echo "[${LABEL}] Starting 1 registration via NordVPN..."
+echo ""
 
-echo ""
-echo "[${LABEL}] Starting automation loop (mode=${MODE})..."
-echo "[${LABEL}] Referral Account: ${WORKER_ACCOUNT}"
-echo ""
+"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --target-url "${WORKER_URL}" --delay-min 0 --delay-max 0 --worker-id "${LABEL}" --timeout 120 --no-proxy ${EXTRA_ARGS}
+EXIT_CODE=\$?
+
+if [[ \$EXIT_CODE -eq 0 ]]; then
+    echo ""
+    echo "[${LABEL}] ✅ Registration completed successfully on NordVPN. Done."
+    exit 0
+elif [[ \$EXIT_CODE -eq 42 ]]; then
+    echo ""
+    echo "[${LABEL}] ⚠️ Rate limited (exit 42) -- finishing session for VPN rotation."
+    exit 42
+else
+    echo ""
+    echo "[${LABEL}] ⏭️ Process finished with code \$EXIT_CODE."
+    exit \$EXIT_CODE
+fi
+WORKER_EOF
+
+    elif [[ "$NETWORK_MODE" == "standalone" ]]; then
+        cat > "$WORKER_SCRIPT" <<WORKER_EOF
+#!/usr/bin/env bash
+export PYTHONUNBUFFERED=1
+export WORKER_ID="${LABEL}"
+export NETWORK_MODE="vpn"
+export USE_PROXY="false"
+
+printf '\033]0;${LABEL}\007' 2>/dev/null || true
+cd "${PROJECT_DIR}"
+
+RUN_COUNT=0
+SUCCESS_COUNT=0
+
+while true; do
+    RUN_COUNT=\$((RUN_COUNT + 1))
+
+    clear 2>/dev/null || printf "\033[2J\033[3J\033[H"
+
+    echo "============================================="
+    echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Standalone]"
+    echo "  Target URL : ${WORKER_URL}"
+    echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "  OTP Maint. : 3x Change Email Retry Enabled"
+    echo "============================================="
+    echo ""
+    echo "[${LABEL}] Starting registration #\$RUN_COUNT on device network (no proxy)..."
+    echo ""
+
+    "${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min 0 --delay-max 0 --timeout 120 --no-proxy ${EXTRA_ARGS}
+    EXIT_CODE=\$?
+
+    if [[ \$EXIT_CODE -eq 0 ]]; then
+        SUCCESS_COUNT=\$((SUCCESS_COUNT + 1))
+        echo ""
+        echo "[${LABEL}] ✅ Run #\$RUN_COUNT successful! Restarting in 2s..."
+    elif [[ \$EXIT_CODE -eq 42 ]]; then
+        echo ""
+        echo "[${LABEL}] ⚠️ Rate limited (exit 42). Cooldown before retry..."
+        sleep 60
+    else
+        echo ""
+        echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$EXIT_CODE). Restarting in 2s..."
+    fi
+
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+done
+WORKER_EOF
+
+    else
+        # Default: Residential Proxy Mode
+        cat > "$WORKER_SCRIPT" <<WORKER_EOF
+#!/usr/bin/env bash
+export PYTHONUNBUFFERED=1
+export WORKER_ID="${LABEL}"
+export NETWORK_MODE="residential"
+export USE_PROXY="true"
+
+printf '\033]0;${LABEL}\007' 2>/dev/null || true
+cd "${PROJECT_DIR}"
 
 RUN_COUNT=0
 SUCCESS_COUNT=0
@@ -456,7 +609,7 @@ while true; do
     clear 2>/dev/null || printf "\033[2J\033[3J\033[H"
 
     echo "============================================="
-    echo "  ${LABEL} (${WORKER_ACCOUNT}) [Unlimited Mode]"
+    echo "  ${LABEL} (${WORKER_ACCOUNT}) [Residential Proxy Mode]"
     echo "  Target URL : ${WORKER_URL}"
     echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
     echo "============================================="
@@ -486,6 +639,7 @@ while true; do
     sleep 1
 done
 WORKER_EOF
+    fi
 
     chmod +x "$WORKER_SCRIPT"
     echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}"

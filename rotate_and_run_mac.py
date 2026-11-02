@@ -105,7 +105,8 @@ def parse_args():
         default=0,
         help="Maximum cooldown delay in seconds after batch/rate-limit before rotating (default: 0)",
     )
-    return parser.parse_args()
+    args, _ = parser.parse_known_args()
+    return args
 
 
 def close_all_terminals():
@@ -170,14 +171,17 @@ def launch_workers(workers_per_link: int, mode: str, delay_min: int, delay_max: 
     env["DELAY_MIN"] = str(delay_min)
     env["DELAY_MAX"] = str(delay_max)
     env["HEADLESS"] = "true" if headless else "false"
+    env["SUPERVISOR_RUN"] = "1"
+    env["NETWORK_MODE"] = "vpn"
+    env["USE_PROXY"] = "false"
 
-    extra = ["--exit-on-rate-limit", "--timeout", "120"]
+    extra = ["--exit-on-rate-limit", "--timeout", "120", "--no-proxy"]
     if browser_headed:
         extra.append("--headed")
     env["EXTRA_ARGS"] = " ".join(extra)
 
     launcher = PROJECT_ROOT / "launch_multi_mac.sh"
-    cmd = ["bash", str(launcher), "5"]
+    cmd = ["bash", str(launcher), "5", "--vpn"]
     if headless:
         cmd.append("--headless")
     else:

@@ -222,11 +222,18 @@ def parse_args():
         help="Optional HTTP/SOCKS5 proxy server (e.g. socks5://127.0.0.1:40000)",
     )
     parser.add_argument(
+        "--no-proxy",
+        action="store_true",
+        help="Explicitly disable proxy and route directly through host network (e.g. for NordVPN)",
+    )
+    parser.add_argument(
         "--exit-on-rate-limit",
         action="store_true",
         help="Exit immediately (code 42) and create trigger file on rate limit cooldown to trigger VPN rotation",
     )
     args = parser.parse_args()
+    if args.no_proxy:
+        args.proxy = "none"
     resolved_url, resolved_email = resolve_target_url(args.target_url)
     args.target_url = resolved_url
     args.target_email = resolved_email
@@ -373,7 +380,13 @@ async def run_loop(args):
                 log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
 
                 # If proxy mode is active, rotate to fresh residential IP immediately
-                proxy_active = bool(
+                proxy_disabled = (
+                    getattr(args, "no_proxy", False)
+                    or str(getattr(args, "proxy", "")).strip().lower() in ("none", "off", "false", "0", "direct")
+                    or os.environ.get("NETWORK_MODE", "").strip().lower() in ("vpn", "nordvpn", "direct", "none", "off")
+                    or os.environ.get("USE_PROXY", "").strip().lower() in ("0", "false", "no", "off")
+                )
+                proxy_active = (not proxy_disabled) and bool(
                     getattr(args, "proxy", None)
                     or os.environ.get("PROXY_SERVER")
                     or os.environ.get("DATAIMPULSE_LOGIN")
