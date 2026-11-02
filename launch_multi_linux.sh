@@ -289,21 +289,23 @@ rand_between() {
 # ── Helper: Detect screen resolution ─────────────────────────
 get_screen_geometry() {
     local w="" h="" res=""
-    if command -v xdotool &>/dev/null; then
-        read -r w h < <(xdotool getdisplaygeometry 2>/dev/null || true)
-    fi
-    if [[ -z "$w" || -z "$h" ]] && command -v xrandr &>/dev/null; then
-        res=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}' | head -n1 || true)
-        if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-            w="${BASH_REMATCH[1]}"
-            h="${BASH_REMATCH[2]}"
+    if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+        if command -v xdotool &>/dev/null; then
+            read -r w h < <(xdotool getdisplaygeometry 2>/dev/null || echo "") || true
         fi
-    fi
-    if [[ -z "$w" || -z "$h" ]] && command -v xdpyinfo &>/dev/null; then
-        res=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2}' || true)
-        if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-            w="${BASH_REMATCH[1]}"
-            h="${BASH_REMATCH[2]}"
+        if [[ -z "$w" || -z "$h" ]] && command -v xrandr &>/dev/null; then
+            res=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}' | head -n1 || true)
+            if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+                w="${BASH_REMATCH[1]}"
+                h="${BASH_REMATCH[2]}"
+            fi
+        fi
+        if [[ -z "$w" || -z "$h" ]] && command -v xdpyinfo &>/dev/null; then
+            res=$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2}' || true)
+            if [[ -n "$res" && "$res" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+                w="${BASH_REMATCH[1]}"
+                h="${BASH_REMATCH[2]}"
+            fi
         fi
     fi
     echo "${w:-1920} ${h:-1080}"
@@ -411,7 +413,7 @@ elif [[ "$SELECTED_METHOD" == "gui" ]]; then
 fi
 
 # ── Grid Geometry Calculation ────────────────────────────────
-read -r SCREEN_W SCREEN_H < <(get_screen_geometry)
+read -r SCREEN_W SCREEN_H < <(get_screen_geometry) || true
 SCREEN_W="${SCREEN_W:-1920}"
 SCREEN_H="${SCREEN_H:-1080}"
 
