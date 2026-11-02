@@ -1053,17 +1053,17 @@ async def register_and_verify(
             # Quick check if maintenance error is immediately visible upon landing on OTP screen
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
+                if is_proxy_active:
+                    log(f"[!] ⚠️ Immediate OTP login maintenance error in residential proxy mode ({initial_maint}). Skipping run...")
+                    raise OtpMaintenanceError(initial_maint)
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
                 log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                resend_ok = await _handle_otp_maintenance_resend(
+                await _handle_otp_maintenance_resend(
                     page=page,
                     email_address=email_address,
                     log=log,
                     rate_limit_intercepted=rate_limit_intercepted,
                 )
-                if not resend_ok and is_proxy_active:
-                    log("[!] ⚠️ Initial Change Email resend failed on proxy. Rotating IP...")
-                    raise OtpMaintenanceError(initial_maint)
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
@@ -1096,6 +1096,9 @@ async def register_and_verify(
                 # 3. Check for OTP login maintenance error on OTP screen
                 maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_err:
+                    if is_proxy_active:
+                        log(f"[!] ⚠️ OTP login maintenance error in residential proxy mode ({maint_err}). Skipping run...")
+                        raise OtpMaintenanceError(maint_err)
                     if maintenance_retries < max_maintenance_retries:
                         maintenance_retries += 1
                         log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
@@ -1111,14 +1114,7 @@ async def register_and_verify(
                             start_poll = time.time()
                             log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
                         else:
-                            if is_proxy_active:
-                                log(f"[!] ⚠️ Change email resend failed on proxy. Rotating residential IP...")
-                                raise OtpMaintenanceError(maint_err)
                             log("[!] Could not complete Change Email resend cycle, continuing wait...")
-                    else:
-                        if is_proxy_active:
-                            log(f"[!] ⚠️ OTP maintenance persisted after {max_maintenance_retries} resends. Rotating residential IP...")
-                            raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(2.0)
                 poll_attempt += 1
@@ -1157,6 +1153,9 @@ async def register_and_verify(
                 if not post_maint_handled:
                     maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                     if maint_err:
+                        if is_proxy_active:
+                            log(f"[!] ⚠️ OTP login maintenance error after OTP submission in residential proxy mode ({maint_err}). Skipping run...")
+                            raise OtpMaintenanceError(maint_err)
                         post_maint_handled = True
                         log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
                         log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
@@ -1180,8 +1179,6 @@ async def register_and_verify(
                                 log(f"[+] New OTP received: {otp_code}. Entering into inputs...")
                                 await _enter_and_verify_otp(page, otp_code, log)
                                 start_dash_wait = time.time()
-                        elif is_proxy_active:
-                            raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(1.0)
 

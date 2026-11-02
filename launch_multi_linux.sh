@@ -59,6 +59,8 @@ for arg in "$@"; do
         NETWORK_MODE="vpn"
     elif [[ "$arg" == "--standalone" || "$arg" == "--direct-vpn" || "$arg" == "--direct" ]]; then
         NETWORK_MODE="standalone"
+    elif [[ "$arg" == "--scatter" || "$arg" == "--round-robin" || "$arg" == "--distribute" ]]; then
+        TARGET_ARG="5"
     elif [[ "$arg" != "stop" && "$arg" != -* && -z "$TARGET_ARG" ]]; then
         TARGET_ARG="$arg"
     fi
@@ -182,58 +184,58 @@ if [[ "$TARGET_ARG" =~ ^https?:// ]]; then
     TARGET_URL="$TARGET_ARG"
     TARGET_EMAIL="Custom Account"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$TARGET_ARG" == "1" || "$TARGET_ARG" == "dd" || "$TARGET_ARG" == "dd@gmail.com" ]]; then
+elif [[ "$TARGET_ARG" == "1" || "$TARGET_ARG" == "pn" || "$TARGET_ARG" == "pn@gmail.com" ]]; then
+    TARGET_URL="$ACCOUNT_1_URL"
+    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+elif [[ "$TARGET_ARG" == "2" || "$TARGET_ARG" == "dd" || "$TARGET_ARG" == "dd@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_2_URL"
     TARGET_EMAIL="$ACCOUNT_2_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$TARGET_ARG" == "2" || "$TARGET_ARG" == "jn" || "$TARGET_ARG" == "jn@gmail.com" ]]; then
+elif [[ "$TARGET_ARG" == "3" || "$TARGET_ARG" == "jn" || "$TARGET_ARG" == "jn@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_3_URL"
     TARGET_EMAIL="$ACCOUNT_3_EMAIL"
-    NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$TARGET_ARG" == "3" || "$TARGET_ARG" == "pn" || "$TARGET_ARG" == "pn@gmail.com" ]]; then
-    TARGET_URL="$ACCOUNT_1_URL"
-    TARGET_EMAIL="$ACCOUNT_1_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$TARGET_ARG" == "4" || "$TARGET_ARG" == "dai" || "$TARGET_ARG" == "dai@gmail.com" ]]; then
     TARGET_URL="$ACCOUNT_4_URL"
     TARGET_EMAIL="$ACCOUNT_4_EMAIL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "round-robin" ]]; then
+elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "scatter" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "round-robin" ]]; then
     ROUND_ROBIN=true
-    TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-    TARGET_URL="Distributed across dd & jn"
-    NUM_WINDOWS="${NUM_WINDOWS:-6}"
-elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_2_URL" ]]; then
+    TARGET_EMAIL="Scatter 4 Refer Links (1 worker each = 4 total)"
+    TARGET_URL="Distributed across pn, dd, jn, dai"
+    NUM_WINDOWS="${NUM_WINDOWS:-4}"
+elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [ -t 0 ]; then
     echo "================================================================"
     echo "   CloudflareAuto -- Select Target Referral Account (Linux)"
     echo "================================================================"
-    echo "  [1] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [2] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [3] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
+    echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
     echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
-    echo "  [5] dd & jn        ->  3 workers each (6 total - Default for Linux)"
+    echo "  [5] Scatter 4 Refer Links -> 1 worker each (4 total: pn, dd, jn, dai) [Default]"
     echo "  [6] Custom URL     ->  [Enter your own referral link]"
     echo "================================================================"
     read -r -p "Select option [1-6, Enter for default 5]: " USER_CHOICE
     USER_CHOICE="${USER_CHOICE:-5}"
 
     case "$USER_CHOICE" in
-        1|dd)
+        1|pn)
+            TARGET_URL="$ACCOUNT_1_URL"
+            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
+            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
+            ;;
+        2|dd)
             TARGET_URL="$ACCOUNT_2_URL"
             TARGET_EMAIL="$ACCOUNT_2_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        2|jn)
+        3|jn)
             TARGET_URL="$ACCOUNT_3_URL"
             TARGET_EMAIL="$ACCOUNT_3_EMAIL"
-            NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
-            ;;
-        3|pn)
-            TARGET_URL="$ACCOUNT_1_URL"
-            TARGET_EMAIL="$ACCOUNT_1_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
         4|dai)
@@ -241,31 +243,31 @@ elif [ -t 0 ]; then
             TARGET_EMAIL="$ACCOUNT_4_EMAIL"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
-        5|all|distribute)
+        5|all|scatter|distribute)
             ROUND_ROBIN=true
-            TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-            TARGET_URL="Distributed across dd & jn"
-            NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            TARGET_EMAIL="Scatter 4 Refer Links (1 worker each = 4 total)"
+            TARGET_URL="Distributed across pn, dd, jn, dai"
+            NUM_WINDOWS="${NUM_WINDOWS:-4}"
             ;;
         6|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
-            TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_2_URL}"
+            TARGET_URL="${CUSTOM_INPUT:-$ACCOUNT_1_URL}"
             TARGET_EMAIL="Custom Account"
             NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
             ;;
         *)
             ROUND_ROBIN=true
-            TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-            TARGET_URL="Distributed across dd & jn"
-            NUM_WINDOWS="${NUM_WINDOWS:-6}"
+            TARGET_EMAIL="Scatter 4 Refer Links (1 worker each = 4 total)"
+            TARGET_URL="Distributed across pn, dd, jn, dai"
+            NUM_WINDOWS="${NUM_WINDOWS:-4}"
             ;;
     esac
 else
-    # Non-interactive fallback default: dd & jn distributed (6 workers)
+    # Non-interactive fallback default: scatter 4 refer links (4 workers)
     ROUND_ROBIN=true
-    TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-    TARGET_URL="Distributed across dd & jn"
-    NUM_WINDOWS="${NUM_WINDOWS:-6}"
+    TARGET_EMAIL="Scatter 4 Refer Links (1 worker each = 4 total)"
+    TARGET_URL="Distributed across pn, dd, jn, dai"
+    NUM_WINDOWS="${NUM_WINDOWS:-4}"
 fi
 
 # ── Clean up old worker directory and screenshots ────────────
@@ -421,8 +423,8 @@ if (( NUM_WINDOWS <= 2 )); then
     COLS=$NUM_WINDOWS
     ROWS=1
 elif (( NUM_WINDOWS <= 4 )); then
-    COLS=$NUM_WINDOWS
-    ROWS=1
+    COLS=2
+    ROWS=2
 elif (( NUM_WINDOWS <= 6 )); then
     COLS=3
     ROWS=2
@@ -459,7 +461,7 @@ echo "  Project   : $PROJECT_DIR"
 echo "  Python    : $PYTHON"
 echo "  Mode      : $MODE (--loop)"
 echo "  Network   : $([[ "$NETWORK_MODE" == "residential" ]] && echo "Residential Proxy (DataImpulse - Dynamic sticky IP per run)" || echo "NordVPN / Direct (Host Network)")"
-echo "  Workers   : $NUM_WINDOWS (arranged in ${COLS}x${ROWS} grid)"
+echo "  Workers   : $NUM_WINDOWS ($([[ "$ROUND_ROBIN" == "true" ]] && echo "1 per refer link scattered across 4 accounts" || echo "${WORKERS_PER_LINK} per refer link"), ${COLS}x${ROWS} grid)"
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 fi
@@ -489,9 +491,9 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
 
     if [[ "$ROUND_ROBIN" == "true" ]]; then
-        ACCOUNTS=("$ACCOUNT_2_URL" "$ACCOUNT_3_URL")
-        EMAILS=("$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL")
-        IDX=$(( (i / 3) % ${#ACCOUNTS[@]} ))
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+        IDX=$(( i % ${#ACCOUNTS[@]} ))
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
     else
