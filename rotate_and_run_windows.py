@@ -190,11 +190,8 @@ def launch_workers(num_workers: int, mode: str, delay_min: int, delay_max: int, 
         cmd.append("-Headless")
     if browser_headed:
         cmd.append("-BrowserHeaded")
-    cmd.append("-SingleRun")
 
-    env = os.environ.copy()
-    env["SINGLE_RUN"] = "true"
-    subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env)
+    subprocess.run(cmd, cwd=str(PROJECT_ROOT))
 
 
 def read_events_stats() -> tuple[dict, list]:
@@ -344,8 +341,8 @@ def main():
                         render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="⚠️ All batch sessions finished/limited! Rotating immediately...")
                         break
                 else:
-                    if active == 0 and batch_elapsed >= 5:
-                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="✅ Batch Completed (all workers finished)! Rotating to next VPN IP...")
+                    if active == 0 and batch_elapsed > 30:
+                        render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Completed! Rotating immediately...")
                         break
                     elif batch_elapsed >= max_batch_time:
                         render_dashboard(cycle_count, start_time, ip_info, total_workers, status_msg="Batch Time Complete. Rotating immediately...")

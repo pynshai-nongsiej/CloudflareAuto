@@ -16,7 +16,6 @@ import subprocess
 import platform
 import shutil
 import tempfile
-import hashlib
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -87,45 +86,6 @@ SESSION_USED_COUNTRIES: set[str] = set()     # e.g. 'United States', 'Germany'
 SESSION_USED_STATIONS: set[str] = set()      # Station IPs
 SESSION_USED_IPS: set[str] = set()           # Verified external public IPs
 SESSION_ROTATION_COUNT: int = 0
-
-
-def get_platform_partition() -> Tuple[int, str]:
-    """Return platform partition index (0 for macOS, 1 for Linux, 2 for Windows) and name.
-    
-    This guarantees that macOS, Linux, and Windows draw from completely non-overlapping
-    server slices of the 7,100+ global pool, so they never tangle or collide on the same
-    servers or public IPs, even when using the exact same NordVPN account.
-    """
-    forced = os.environ.get("NORD_PLATFORM_PARTITION")
-    if forced and forced.isdigit():
-        idx = int(forced) % 3
-        return idx, ["macOS", "Linux", "Windows"][idx]
-
-    if SYSTEM == "Darwin":
-        return 0, "macOS"
-    elif SYSTEM == "Linux":
-        return 1, "Linux"
-    else:
-        return 2, "Windows"
-
-
-PLATFORM_ID, PLATFORM_NAME = get_platform_partition()
-
-
-def is_server_for_platform(hostname: str, platform_id: int) -> bool:
-    """Strictly partition servers across platforms using deterministic MD5 hostname hash.
-
-    macOS: partition 0 (~2,400 servers)
-    Linux: partition 1 (~2,400 servers)
-    Windows: partition 2 (~2,400 servers)
-
-    This guarantees 100% disjoint server pools with zero tangling or overlap.
-    """
-    if not hostname:
-        return False
-    clean_host = hostname.split(".udp.")[0].split(".tcp.")[0].split(".")[0].lower().strip()
-    h = int(hashlib.md5(clean_host.encode("utf-8")).hexdigest(), 16)
-    return (h % 3) == platform_id
 
 
 def reset_session_history():
@@ -279,16 +239,12 @@ def find_cached_ovpn(country_code: str = "", state_or_city: str = "") -> dict | 
     if not all_cached:
         return None
 
-    # Filter out cached configs already connected to in this session AND enforce platform partition
-    platform_cached = [
-        f for f in all_cached
-        if is_server_for_platform(f.name, PLATFORM_ID)
-    ]
+    # Filter out cached configs already connected to in this session
     fresh_cached = [
-        f for f in platform_cached
+        f for f in all_cached
         if f.name.split(".udp.")[0].split(".tcp.")[0] not in SESSION_USED_SERVERS
     ]
-    pool = fresh_cached if fresh_cached else (platform_cached if platform_cached else all_cached)
+    pool = fresh_cached if fresh_cached else all_cached
 
     if country_code:
         prefix = country_code.lower()
@@ -374,7 +330,7 @@ def select_random_server(
         countries = get_all_available_countries()
 
     total_pool_servers = sum(c.get("serverCount", 0) for c in countries) or 7236
-    batch_size = 60
+    batch_size = 40
     servers_batch = []
 
     # Case A: User explicitly targeted a country, state, or city
@@ -452,10 +408,6 @@ def select_random_server(
         if station and station in SESSION_USED_STATIONS:
             continue
 
-        # Strict platform slice check: guarantees macOS, Linux, and Windows never share or tangle servers
-        if not is_server_for_platform(hostname, PLATFORM_ID):
-            continue
-
         loc = s.get("locations", [{}])[0]
         c_dict = loc.get("country", {})
         c_name = c_dict.get("name", "Unknown")
@@ -511,11 +463,9 @@ def select_random_server(
     if cached:
         return cached
 
-    # Fallback 2: Verified fallback list avoiding session duplicates and matching platform slice
-    platform_fallbacks = [f for f in FALLBACK_SERVERS if is_server_for_platform(f["hostname"], PLATFORM_ID)]
-    pool_fallbacks = platform_fallbacks if platform_fallbacks else FALLBACK_SERVERS
-    unused_fallbacks = [f for f in pool_fallbacks if f["hostname"] not in SESSION_USED_SERVERS]
-    fb = random.choice(unused_fallbacks if unused_fallbacks else pool_fallbacks)
+    # Fallback 2: Verified fallback list avoiding session duplicates
+    unused_fallbacks = [f for f in FALLBACK_SERVERS if f["hostname"] not in SESSION_USED_SERVERS]
+    fb = random.choice(unused_fallbacks if unused_fallbacks else FALLBACK_SERVERS)
     loc_str = f"{fb.get('city')}, {fb.get('state')}, {fb['country']}"
     return {
         "id": fb["id"],
@@ -1015,7 +965,6 @@ def rotate_vpn(target_location: Optional[str] = None, max_attempts: int = 5) -> 
         verified_country = verified_ip_info.get("country") or server.get("country_code")
 
         print(f"\n  ✅ VPN CONNECTED & IP CHANGE VERIFIED!")
-        print(f"  Platform Slice : {PLATFORM_NAME} (Partition #{PLATFORM_ID} - Non-Overlapping)")
         print(f"  Previous IP    : {pre_ip}")
         print(f"  New Public IP  : {new_ip}")
         print(f"  Verified Geo   : {verified_city}, {verified_region}, {verified_country}")

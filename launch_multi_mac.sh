@@ -36,9 +36,6 @@ WORKER_STATUS=""
 # Terminal window mode: default headed (visible Terminal.app windows)
 HEADLESS="${HEADLESS:-false}"
 
-# Single-run batch mode (default: false, runs unlimited loops unless launched by rotator)
-SINGLE_RUN="${SINGLE_RUN:-false}"
-
 # Browser execution mode: default headless (no Chromium GUI popups)
 BROWSER_HEADED="false"
 
@@ -50,8 +47,6 @@ for arg in "$@"; do
         HEADLESS="false"
     elif [[ "$arg" == "--browser-headed" || "$arg" == "--headed-browser" || "$arg" == "--show-browser" ]]; then
         BROWSER_HEADED="true"
-    elif [[ "$arg" == "--single-run" || "$arg" == "--batch" ]]; then
-        SINGLE_RUN="true"
     fi
 done
 
@@ -281,42 +276,7 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     echo "  [$LABEL]  grid=(${COL},${ROW})  account=${WORKER_ACCOUNT}"
 
     # ── Write a standalone bash script for this worker ───────
-    if [[ "$SINGLE_RUN" == "true" ]]; then
-        cat > "$WORKER_SCRIPT" <<WORKER_EOF
-#!/usr/bin/env bash
-export PYTHONUNBUFFERED=1
-export WORKER_ID="${LABEL}"
-
-printf '\033]0;${LABEL}\007' 2>/dev/null || true
-cd "${PROJECT_DIR}"
-
-echo ""
-echo "============================================="
-echo "  ${LABEL} (${WORKER_ACCOUNT}) [Batch Mode: 1 Run]"
-echo "  Target URL : ${WORKER_URL}"
-echo "============================================="
-echo ""
-echo "[${LABEL}] Starting single registration batch..."
-echo ""
-
-"${PYTHON}" -u main.py --mode ${MODE} --loop --count 1 --worker-id "${LABEL}" --target-url "${WORKER_URL}" --delay-min ${DELAY_MIN} --delay-max ${DELAY_MAX} --timeout 120 ${EXTRA_ARGS}
-WORKER_STATUS=\$?
-if [[ \$WORKER_STATUS -eq 42 ]]; then
-    echo ""
-    echo "[${LABEL}] Rate limited (exit 42) -- notifying supervisor for VPN rotation."
-    exit 42
-elif [[ \$WORKER_STATUS -eq 0 ]]; then
-    echo ""
-    echo "[${LABEL}] ✅ Registration completed successfully (code 0). Batch task finished."
-    exit 0
-else
-    echo ""
-    echo "[${LABEL}] Process finished with code \$WORKER_STATUS."
-    exit \$WORKER_STATUS
-fi
-WORKER_EOF
-    else
-        cat > "$WORKER_SCRIPT" <<WORKER_EOF
+    cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
@@ -351,7 +311,6 @@ while true; do
     fi
 done
 WORKER_EOF
-    fi
 
     chmod +x "$WORKER_SCRIPT"
 
