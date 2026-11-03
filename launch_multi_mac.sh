@@ -23,6 +23,7 @@ set -euo pipefail
 # ── Config ───────────────────────────────────────────────────
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKERS_PER_LINK="${WORKERS_PER_LINK:-3}"
+TOTAL_WORKERS=12  # 3 workers per referral × 4 referral links = 12 total
 NUM_WINDOWS="${NUM_WINDOWS:-}"
 MODE="${MODE:-direct}"
 REFERRER="${REFERRER:-none}"
@@ -33,8 +34,8 @@ TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 EXIT_CODE=""
 WORKER_STATUS=""
 
-# Terminal window mode: default headed (visible Terminal.app windows)
-HEADLESS="${HEADLESS:-false}"
+# Terminal window mode: default headless (background processes with log files)
+HEADLESS="${HEADLESS:-true}"
 
 # Browser execution mode: default headless (no Chromium GUI popups)
 BROWSER_HEADED="false"
@@ -60,6 +61,10 @@ for arg in "$@"; do
         NETWORK_MODE="standalone"
     elif [[ "$arg" == "--scatter" || "$arg" == "--round-robin" || "$arg" == "--distribute" ]]; then
         TARGET_ARG="5"
+    elif [[ "$arg" =~ ^--workers=([0-9]+)$ ]]; then
+        NUM_WINDOWS="${BASH_REMATCH[1]}"
+    elif [[ "$arg" =~ ^[0-9]+$ && "$arg" -ge 10 ]]; then
+        NUM_WINDOWS="$arg"
     elif [[ "$arg" != "stop" && "$arg" != -* && -z "$TARGET_ARG" ]]; then
         TARGET_ARG="$arg"
     fi
@@ -85,14 +90,18 @@ ACCOUNT_4_EMAIL="dai@gmail.com"
 # ── Stop Command ─────────────────────────────────────────────
 if [[ "${1:-}" == "stop" || "${2:-}" == "stop" ]]; then
     echo "================================================================"
-    echo "  Stopping all CloudflareAuto workers on macOS..."
+    echo "  Stopping all CloudflareAuto workers on macOS cleanly with pkill..."
     echo "================================================================"
     pkill -f 'main.py' 2>/dev/null || true
     pkill -f 'worker_.*\.sh' 2>/dev/null || true
+    pkill -f 'Chromium' 2>/dev/null || true
+    pkill -f 'chromium' 2>/dev/null || true
+    pkill -f 'playwright' 2>/dev/null || true
     rm -rf "$TMPDIR_WORKERS"
     rm -f /tmp/cloudflare_rate_limit_triggered.flag
     rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
-    echo "  [+] All CloudflareAuto workers stopped."
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* 2>/dev/null || true
+    echo "  [+] All CloudflareAuto workers stopped cleanly with pkill."
     echo "================================================================"
     exit 0
 fi
@@ -182,15 +191,9 @@ elif [[ "$TARGET_ARG" == "4" || "$TARGET_ARG" == "jn" || "$TARGET_ARG" == "jn@gm
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
 elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "both" || "$TARGET_ARG" == "scatter" || "$TARGET_ARG" == "round-robin" ]]; then
     ROUND_ROBIN=true
-    if [[ "$NETWORK_MODE" == "residential" ]]; then
-        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
-        TARGET_URL="Distributed across pn, dd, jn, dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-4}"
-    else
-        TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-        TARGET_URL="Distributed across pn & dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-6}"
-    fi
+    TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+    TARGET_URL="Distributed across pn, dd, jn, dai"
+    NUM_WINDOWS="${NUM_WINDOWS:-12}"
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_1_URL" ]]; then
     TARGET_EMAIL="Custom URL"
     NUM_WINDOWS="${NUM_WINDOWS:-$WORKERS_PER_LINK}"
@@ -203,14 +206,14 @@ elif [ -t 0 ]; then
         echo "  [2] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
         echo "  [3] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
         echo "  [4] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
-        echo "  [5] 4 Distinct Refer Links -> 1 worker each (4 total: pn, dd, jn, dai) [Default]"
+        echo "  [5] 4 Distinct Refer Links -> 3 workers each (12 total: pn, dd, jn, dai) [Default]"
         echo "  [6] Custom URL     ->  [Enter your own referral link]"
     else
         echo "  [1] pn@gmail.com   ->  $ACCOUNT_1_URL  (${WORKERS_PER_LINK} workers)"
         echo "  [2] dai@gmail.com  ->  $ACCOUNT_4_URL  (${WORKERS_PER_LINK} workers)"
         echo "  [3] dd@gmail.com   ->  $ACCOUNT_2_URL  (${WORKERS_PER_LINK} workers)"
         echo "  [4] jn@gmail.com   ->  $ACCOUNT_3_URL  (${WORKERS_PER_LINK} workers)"
-        echo "  [5] pn & dai       ->  3 workers each (6 total - Default for macOS NordVPN) [Default]"
+        echo "  [5] All 4 Links    ->  3 workers each (12 total) [Default]"
         echo "  [6] Custom URL     ->  [Enter your own referral link]"
     fi
     echo "================================================================"
@@ -275,15 +278,9 @@ elif [ -t 0 ]; then
             ;;
         5|all|distribute|both|scatter)
             ROUND_ROBIN=true
-            if [[ "$NETWORK_MODE" == "residential" ]]; then
-                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
-                TARGET_URL="Distributed across pn, dd, jn, dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-4}"
-            else
-                TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-                TARGET_URL="Distributed across pn & dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-6}"
-            fi
+            TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+            TARGET_URL="Distributed across pn, dd, jn, dai"
+            NUM_WINDOWS="${NUM_WINDOWS:-12}"
             ;;
         6|custom)
             read -r -p "Enter custom referral URL: " CUSTOM_INPUT
@@ -293,29 +290,17 @@ elif [ -t 0 ]; then
             ;;
         *)
             ROUND_ROBIN=true
-            if [[ "$NETWORK_MODE" == "residential" ]]; then
-                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
-                TARGET_URL="Distributed across pn, dd, jn, dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-4}"
-            else
-                TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-                TARGET_URL="Distributed across pn & dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-6}"
-            fi
+            TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+            TARGET_URL="Distributed across pn, dd, jn, dai"
+            NUM_WINDOWS="${NUM_WINDOWS:-12}"
             ;;
     esac
 else
     # Non-interactive fallback default
     ROUND_ROBIN=true
-    if [[ "$NETWORK_MODE" == "residential" ]]; then
-        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
-        TARGET_URL="Distributed across pn, dd, jn, dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-4}"
-    else
-        TARGET_EMAIL="pn & dai (3 workers each = 6 total)"
-        TARGET_URL="Distributed across pn & dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-6}"
-    fi
+    TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+    TARGET_URL="Distributed across pn, dd, jn, dai"
+    NUM_WINDOWS="${NUM_WINDOWS:-12}"
 fi
 
 # Clean up any old worker scripts and temporary screenshots
@@ -348,9 +333,15 @@ elif (( NUM_WINDOWS <= 6 )); then
 elif (( NUM_WINDOWS <= 8 )); then
     COLS=4
     ROWS=2
+elif (( NUM_WINDOWS <= 12 )); then
+    COLS=4
+    ROWS=3
+elif (( NUM_WINDOWS <= 16 )); then
+    COLS=4
+    ROWS=4
 else
     COLS=5
-    ROWS=2
+    ROWS=4
 fi
 MARGIN=5
 TITLE_BAR=28
@@ -365,14 +356,14 @@ echo "  Project : $PROJECT_DIR"
 echo "  Python  : $PYTHON"
 echo "  Mode    : $MODE (--loop)"
 echo "  Network : $([[ "$NETWORK_MODE" == "residential" ]] && echo "Residential Proxy (DataImpulse - Dynamic sticky IP per run)" || echo "NordVPN / Direct (Host Network)")"
-echo "  Workers : $NUM_WINDOWS ($([[ "$NETWORK_MODE" == "residential" ]] && echo "1 per refer link across 4 distinct accounts (pn, dd, jn, dai)" || echo "${WORKERS_PER_LINK} per refer link"), ${COLS}x${ROWS} grid)"
+echo "  Workers : $NUM_WINDOWS (3 per refer link × 4 accounts (pn, dd, jn, dai) = 12 total | unique sticky IP per worker, ${COLS}x${ROWS} grid)"
 echo "  Screen  : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 if (( DELAY_MAX > 0 )); then
     echo "  Pacing  : ${DELAY_MIN}-${DELAY_MAX}s between runs"
 elif [[ "$NETWORK_MODE" == "residential" ]]; then
-    echo "  Pacing  : Staggered cooldown (Worker 1: ~55s, Worker 2: ~75s, Worker 3: ~95s, Worker 4: ~115s)"
+    echo "  Pacing  : Staggered cooldown (30-60s) per 3-worker slot across 4 referral accounts"
 else
-    echo "  Pacing  : No cooldown (continuous)"
+    echo "  Pacing  : Staggered startup (10s per worker) | No between-run cooldown"
 fi
 echo "  Referrer: $REFERRER (Instagram, Telegram, Facebook, YouTube, etc.)"
 echo "  Target  : $TARGET_EMAIL"
@@ -403,15 +394,11 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
 
     if [[ "$ROUND_ROBIN" == "true" ]]; then
-        if [[ "$NETWORK_MODE" == "residential" ]]; then
-            ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
-            EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
-            IDX=$(( i % 4 ))
-        else
-            ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_4_URL")
-            EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_4_EMAIL")
-            IDX=$(( (i / WORKERS_PER_LINK) % ${#ACCOUNTS[@]} ))
-        fi
+        # 12 workers total: 3 per referral across all 4 accounts (unique network per worker)
+        # Workers 00-02 → account1(pn), 03-05 → account2(dd), 06-08 → account3(jn), 09-11 → account4(dai)
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+        IDX=$(( i / 3 % 4 ))
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
         ACC_GROUP=$IDX
@@ -425,24 +412,76 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
 
     # ── Write a standalone bash script for this worker ───────
     if [[ "$NETWORK_MODE" == "vpn" ]]; then
+        ACCT_GROUP=$(( i / 3 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
 export NETWORK_MODE="vpn"
 export USE_PROXY="false"
+export WORKER_ACCT_GROUP="${ACCT_GROUP}"
 
 # Set terminal title if running in a window
 printf '\033]0;${LABEL}\007' 2>/dev/null || true
 
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    else
+        MY_TTY=\$(tty 2>/dev/null || echo "")
+        osascript - "${WORKER_SCRIPT}" "${X}" "${Y}" "${X2}" "${Y2}" "\$MY_TTY" <<'APPLESCRIPT'
+on run argv
+    set workerScript to item 1 of argv
+    set xPos  to (item 2 of argv) as integer
+    set yPos  to (item 3 of argv) as integer
+    set xPos2 to (item 4 of argv) as integer
+    set yPos2 to (item 5 of argv) as integer
+    set oldTty to item 6 of argv
+
+    tell application "Terminal"
+        do script "exec env WORKER_RESTARTED=1 bash " & quoted form of workerScript
+        delay 0.5
+        set bounds of window 1 to {xPos, yPos, xPos2, yPos2}
+
+        if oldTty is not "" then
+            repeat with w in windows
+                repeat with t in tabs of w
+                    if tty of t is equal to oldTty then
+                        close w saving no
+                        exit repeat
+                    end if
+                end repeat
+            end repeat
+        end if
+    end tell
+end run
+APPLESCRIPT
+        exit 0
+    fi
+}
+
 echo ""
 echo "============================================="
 echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Mode]"
-echo "  Target URL : ${WORKER_URL}"
-echo "  Network    : NordVPN Host Tunnel (No Proxy)"
-echo "  OTP Maint. : 3x Change Email Retry Enabled"
+echo "  Target URL  : ${WORKER_URL}"
+echo "  Acct Group  : ${ACCT_GROUP} (3 workers per referral, unique VPN tunnel)"
+echo "  Network     : NordVPN Host Tunnel (No Proxy)"
+echo "  OTP Maint.  : Auto-closes terminal & relaunches fresh"
 echo "============================================="
 echo ""
 echo "[${LABEL}] Starting 1 registration via NordVPN..."
@@ -459,6 +498,8 @@ elif [[ \$WORKER_STATUS -eq 42 ]]; then
     echo ""
     echo "[${LABEL}] ⚠️ Rate limited (exit 42) -- finishing session for VPN rotation."
     exit 42
+elif [[ \$WORKER_STATUS -eq 43 ]]; then
+    restart_worker_terminal
 else
     echo ""
     echo "[${LABEL}] ⏭️ Process finished with code \$WORKER_STATUS."
@@ -467,18 +508,75 @@ fi
 WORKER_EOF
 
     elif [[ "$NETWORK_MODE" == "standalone" ]]; then
+        INIT_STAGGER=$(( i * 10 ))
+        ACCT_GROUP=$(( i / 3 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
 export NETWORK_MODE="vpn"
 export USE_PROXY="false"
+export WORKER_ACCT_GROUP="${ACCT_GROUP}"
 
 printf '\033]0;${LABEL}\007' 2>/dev/null || true
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    else
+        MY_TTY=\$(tty 2>/dev/null || echo "")
+        osascript - "${WORKER_SCRIPT}" "${X}" "${Y}" "${X2}" "${Y2}" "\$MY_TTY" <<'APPLESCRIPT'
+on run argv
+    set workerScript to item 1 of argv
+    set xPos  to (item 2 of argv) as integer
+    set yPos  to (item 3 of argv) as integer
+    set xPos2 to (item 4 of argv) as integer
+    set yPos2 to (item 5 of argv) as integer
+    set oldTty to item 6 of argv
+
+    tell application "Terminal"
+        do script "exec env WORKER_RESTARTED=1 bash " & quoted form of workerScript
+        delay 0.5
+        set bounds of window 1 to {xPos, yPos, xPos2, yPos2}
+
+        if oldTty is not "" then
+            repeat with w in windows
+                repeat with t in tabs of w
+                    if tty of t is equal to oldTty then
+                        close w saving no
+                        exit repeat
+                    end if
+                end repeat
+            end repeat
+        end if
+    end tell
+end run
+APPLESCRIPT
+        exit 0
+    fi
+}
+
 RUN_COUNT=0
 SUCCESS_COUNT=0
+
+if [[ ${INIT_STAGGER} -gt 0 && "\${WORKER_RESTARTED:-0}" != "1" ]]; then
+    echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s (unique slot per worker)..."
+    sleep ${INIT_STAGGER}
+fi
 
 while true; do
     RUN_COUNT=\$((RUN_COUNT + 1))
@@ -487,9 +585,10 @@ while true; do
 
     echo "============================================="
     echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Standalone]"
-    echo "  Target URL : ${WORKER_URL}"
-    echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
-    echo "  OTP Maint. : 3x Change Email Retry Enabled"
+    echo "  Target URL  : ${WORKER_URL}"
+    echo "  Total Runs  : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "  Acct Group  : ${ACCT_GROUP} (3 workers per referral, staggered slots)"
+    echo "  OTP Maint.  : Auto-closes terminal & relaunches fresh"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on device network (no proxy)..."
@@ -506,6 +605,8 @@ while true; do
         echo ""
         echo "[${LABEL}] ⚠️ Rate limited (exit 42). Cooldown before retry..."
         sleep 60
+    elif [[ \$WORKER_STATUS -eq 43 ]]; then
+        restart_worker_terminal
     else
         echo ""
         echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$WORKER_STATUS). Restarting in 2s..."
@@ -517,9 +618,14 @@ done
 WORKER_EOF
 
     else
-        # Default: Residential Proxy Mode
+        # Residential Proxy Mode:
+        # Each worker gets a unique sticky DataImpulse session ID (via WORKER_ID in ip_tracker.py).
+        # Stagger startup: 15s apart so no two workers probe the proxy at the same instant.
+        # Cooldown cycles through 3 time slots per group so workers within the same referral
+        # group run at offset times — guaranteeing no two workers share the same IP window.
         INIT_STAGGER=$(( i * 15 ))
-        COOLDOWN_BASE=$(( 50 + i * 20 ))
+        SLOT_ID=$(( i % 3 ))
+        COOLDOWN_BASE=$(( 30 + SLOT_ID * 15 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
@@ -533,11 +639,60 @@ printf '\033]0;${LABEL}\007' 2>/dev/null || true
 
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    else
+        MY_TTY=\$(tty 2>/dev/null || echo "")
+        osascript - "${WORKER_SCRIPT}" "${X}" "${Y}" "${X2}" "${Y2}" "\$MY_TTY" <<'APPLESCRIPT'
+on run argv
+    set workerScript to item 1 of argv
+    set xPos  to (item 2 of argv) as integer
+    set yPos  to (item 3 of argv) as integer
+    set xPos2 to (item 4 of argv) as integer
+    set yPos2 to (item 5 of argv) as integer
+    set oldTty to item 6 of argv
+
+    tell application "Terminal"
+        do script "exec env WORKER_RESTARTED=1 bash " & quoted form of workerScript
+        delay 0.5
+        set bounds of window 1 to {xPos, yPos, xPos2, yPos2}
+
+        if oldTty is not "" then
+            repeat with w in windows
+                repeat with t in tabs of w
+                    if tty of t is equal to oldTty then
+                        close w saving no
+                        exit repeat
+                    end if
+                end repeat
+            end repeat
+        end if
+    end tell
+end run
+APPLESCRIPT
+        exit 0
+    fi
+}
+
 RUN_COUNT=0
 SUCCESS_COUNT=0
 
-if [[ ${INIT_STAGGER} -gt 0 ]]; then
-    echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s to avoid simultaneous requests..."
+if [[ ${INIT_STAGGER} -gt 0 && "\${WORKER_RESTARTED:-0}" != "1" ]]; then
+    echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s (unique time slot per worker)..."
     sleep ${INIT_STAGGER}
 fi
 
@@ -551,8 +706,8 @@ while true; do
     echo "  ${LABEL} (${WORKER_ACCOUNT}) [Residential Proxy Mode]"
     echo "  Target URL : ${WORKER_URL}"
     echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
-    echo "  Cooldown   : ${COOLDOWN_BASE}-\$(( ${COOLDOWN_BASE} + 10 ))s staggered"
-    echo "  OTP Maint. : 3x Change Email Retry Enabled"
+    echo "  Cooldown   : ${COOLDOWN_BASE}-\$(( ${COOLDOWN_BASE} + 5 ))s (slot ${SLOT_ID}/3)"
+    echo "  OTP Maint. : Auto-closes terminal & relaunches fresh"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."
@@ -569,6 +724,8 @@ while true; do
     elif [[ \$WORKER_STATUS -eq 42 ]]; then
         echo ""
         echo "[${LABEL}] ⚠️ Rate limited (exit 42)."
+    elif [[ \$WORKER_STATUS -eq 43 ]]; then
+        restart_worker_terminal
     else
         echo ""
         echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$WORKER_STATUS)."
@@ -577,7 +734,7 @@ while true; do
     # Clean up temporary browser data, screenshots, and orphan chromium temp data
     rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
 
-    COOLDOWN=\$(( ${COOLDOWN_BASE} + RANDOM % 11 ))
+    COOLDOWN=\$(( ${COOLDOWN_BASE} + RANDOM % 6 ))
     echo ""
     echo "[${LABEL}] ⏳ Staggered Cooldown: \${COOLDOWN}s before next residential proxy registration..."
     for (( sec=COOLDOWN; sec>0; sec-- )); do

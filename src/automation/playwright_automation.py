@@ -805,6 +805,37 @@ async def register_and_verify(
 
         page = await context.new_page()
 
+        # ── Data-saver: Block heavy resource types that are not needed for automation ──
+        # Images, fonts, media, and stylesheets account for the vast majority of page
+        # bandwidth. The SPA's login/OTP flow relies only on JS, XHR/fetch, and the
+        # HTML document itself — blocking everything else is safe.
+        _BLOCKED_TYPES = {
+            "image", "imageset", "media", "font",
+            "stylesheet", "texttrack", "eventsource",
+            "websocket", "manifest", "other",
+        }
+        # Also block third-party analytics / tracking / CDN ad domains
+        _BLOCKED_DOMAINS = {
+            "google-analytics.com", "googletagmanager.com", "doubleclick.net",
+            "facebook.net", "facebook.com/tr", "hotjar.com", "intercom.io",
+            "segment.com", "amplitude.com", "mixpanel.com", "fullstory.com",
+            "clarity.ms", "nr-data.net", "newrelic.com", "sentry.io",
+        }
+
+        async def _block_unnecessary_resources(route):
+            req = route.request
+            rtype = req.resource_type  # e.g. "image", "stylesheet", "font", ...
+            if rtype in _BLOCKED_TYPES:
+                await route.abort()
+                return
+            url_lower = req.url.lower()
+            if any(domain in url_lower for domain in _BLOCKED_DOMAINS):
+                await route.abort()
+                return
+            await route.continue_()
+
+        await page.route("**/*", _block_unnecessary_resources)
+
         # Monitor network responses for HTTP 429 rate limit or maintenance
         rate_limit_intercepted = [None]
         maintenance_intercepted = [None]
@@ -1002,13 +1033,8 @@ async def register_and_verify(
                 # Check if maintenance error appeared on login form while still stuck on /login
                 maint_early = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_early and "/otp" not in page.url:
-                    log(f"[!] ⚠️ Login form error detected on /login ({maint_early}). Attempting resend...")
-                    try:
-                        retry_btn = await _find_send_otp_button(page)
-                        if retry_btn and await retry_btn.is_visible() and await retry_btn.is_enabled():
-                            await retry_btn.click()
-                    except Exception:
-                        raise OtpMaintenanceError(maint_early)
+                    log(f"[!] ⚠️ OTP login maintenance detected on /login: {maint_early}")
+                    raise OtpMaintenanceError(maint_early)
 
                 # Check if OTP inputs appeared on current page
                 otp_inputs = await _find_otp_inputs(page)
@@ -1051,13 +1077,7 @@ async def register_and_verify(
             initial_maint = await _check_maintenance_error(page, maintenance_intercepted)
             if initial_maint:
                 log(f"[!] ⚠️ Immediate OTP login maintenance error on OTP screen: {initial_maint}")
-                log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                await _handle_otp_maintenance_resend(
-                    page=page,
-                    email_address=email_address,
-                    log=log,
-                    rate_limit_intercepted=rate_limit_intercepted,
-                )
+                raise OtpMaintenanceError(initial_maint)
 
             # ── Step 7: Poll for OTP code with maintenance check & auto-resend ──
             log(f"[*] Polling TempMail.Plus inbox for OTP code ({email_address})...")
@@ -1090,25 +1110,8 @@ async def register_and_verify(
                 # 3. Check for OTP login maintenance error on OTP screen
                 maint_err = await _check_maintenance_error(page, maintenance_intercepted)
                 if maint_err:
-                    if maintenance_retries < max_maintenance_retries:
-                        maintenance_retries += 1
-                        log(f"[!] ⚠️ Detected OTP login maintenance error on OTP screen (attempt {maintenance_retries}/{max_maintenance_retries}): {maint_err}")
-                        log(f"[*] Clicking 'Change Email' and resending OTP to exact same email: {email_address}...")
-                        resend_ok = await _handle_otp_maintenance_resend(
-                            page=page,
-                            email_address=email_address,
-                            log=log,
-                            rate_limit_intercepted=rate_limit_intercepted,
-                        )
-                        if resend_ok:
-                            # Reset wait timer so the new OTP has full time to arrive
-                            start_poll = time.time()
-                            log(f"[*] Reset OTP wait timer for freshly requested OTP on {email_address}...")
-                        else:
-                            log("[!] Could not complete Change Email resend cycle, continuing wait...")
-                    else:
-                        log(f"[!] ⚠️ Maximum Change Email retries ({max_maintenance_retries}) reached for OTP maintenance.")
-                        raise OtpMaintenanceError(maint_err)
+                    log(f"[!] ⚠️ OTP login maintenance detected on OTP screen: {maint_err}")
+                    raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(2.0)
                 poll_attempt += 1
@@ -1144,32 +1147,10 @@ async def register_and_verify(
                     raise RateLimitError(wait_sec, msg)
 
                 # Check if maintenance error appeared after submitting OTP
-                if not post_maint_handled:
-                    maint_err = await _check_maintenance_error(page, maintenance_intercepted)
-                    if maint_err:
-                        post_maint_handled = True
-                        log(f"[!] ⚠️ Detected OTP login maintenance error after OTP submission: {maint_err}")
-                        log(f"[*] Clicking 'Change Email' and resending OTP to exact email: {email_address}...")
-                        resend_ok = await _handle_otp_maintenance_resend(
-                            page=page,
-                            email_address=email_address,
-                            log=log,
-                            rate_limit_intercepted=rate_limit_intercepted,
-                        )
-                        if resend_ok:
-                            log(f"[*] Polling TempMail.Plus inbox for new OTP code ({email_address})...")
-                            new_otp = None
-                            start_new_poll = time.time()
-                            while (time.time() - start_new_poll) < 60:
-                                new_otp = await asyncio.to_thread(mail_client.get_latest_code, email_address)
-                                if new_otp and new_otp != otp_code:
-                                    break
-                                await asyncio.sleep(2.0)
-                            if new_otp:
-                                otp_code = new_otp
-                                log(f"[+] New OTP received: {otp_code}. Entering into inputs...")
-                                await _enter_and_verify_otp(page, otp_code, log)
-                                start_dash_wait = time.time()
+                maint_err = await _check_maintenance_error(page, maintenance_intercepted)
+                if maint_err:
+                    log(f"[!] ⚠️ OTP login maintenance detected after OTP submission: {maint_err}")
+                    raise OtpMaintenanceError(maint_err)
 
                 await asyncio.sleep(1.0)
 

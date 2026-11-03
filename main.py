@@ -379,12 +379,13 @@ async def run_loop(args):
                 raise
             except OtpMaintenanceError as ome:
                 failures += 1
-                log_event(args, "otp_maintenance_exhausted", {"message": str(ome)})
+                log_event(args, "otp_maintenance", {"message": str(ome)})
                 print(f"\n{'=' * 60}")
-                print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE")
+                print(f"  ⚠️ Run #{run_number} OTP MAINTENANCE TRIGGERED")
                 print(f"     Details: {ome.message}")
-                print(f"  🔄 Change Email retries exhausted. Rotating to fresh residential IP...")
+                print(f"  ⚡ OTP Maintenance exit (code 43) -- closing terminal to restart fresh...")
                 print(f"{'=' * 60}\n")
+                sys.exit(43)
             except RateLimitError as rle:
                 failures += 1
                 log_event(args, "rate_limit", {"wait_seconds": rle.wait_seconds, "message": rle.message})
@@ -509,8 +510,10 @@ async def run_direct(args):
         result = await run_direct_single(args)
         print_result(result)
     except OtpMaintenanceError as ome:
-        print(f"\n[!] ⚠️ OTP maintenance encountered in proxy mode: {ome.message}")
-        print("[!] Skipped run.")
+        log_event(args, "otp_maintenance", {"message": str(ome)})
+        print(f"\n[!] ⚠️ OTP maintenance encountered: {ome.message}")
+        print("  ⚡ OTP Maintenance exit (code 43) -- closing terminal to restart fresh...")
+        sys.exit(43)
 
 
 def main():

@@ -978,7 +978,13 @@ def get_playwright_context_options(fp: BrowserFingerprint) -> Dict[str, Any]:
 
 
 def get_launch_args() -> List[str]:
-    """Return Chromium launch arguments for stealth operation."""
+    """Return Chromium launch arguments for stealth operation.
+
+    Data-saving flags are included to minimize bandwidth per run:
+      - Prefetch, prerender, and speculative loads are disabled.
+      - Extensions, sync, and background networking are off.
+      - In-browser translate, spell-check, and safe-browsing network calls disabled.
+    """
     args = [
         "--disable-blink-features=AutomationControlled",
         "--disable-infobars",
@@ -991,6 +997,20 @@ def get_launch_args() -> List[str]:
         "--disable-renderer-backgrounding",
         "--disable-ipc-flooding-protection",
         "--no-sandbox",
+        # ── Data-saving: disable speculative / prefetch network activity ──
+        "--no-pings",                             # Suppress <a ping> hyperlink-tracking pings
+        "--disable-background-networking",        # Stop background network calls (component updates, etc.)
+        "--disable-sync",                         # Disable Chrome sync (sends data to Google)
+        "--disable-translate",                    # No Google Translate network requests
+        "--disable-spell-checking",               # No spell-check server calls
+        "--disable-client-side-phishing-detection",  # No SafeBrowsing network lookups
+        "--safebrowsing-disable-auto-update",     # No SafeBrowsing DB update downloads
+        "--disable-domain-reliability",           # No domain reliability beacon uploads
+        "--disable-component-extensions-with-background-pages",
+        "--disable-default-apps",
+        "--metrics-recording-only",               # Stop metrics upload; keep local recording only
+        "--no-report-upload",                     # No crash/UMA report uploads
+        "--dns-prefetch-disable",                 # No speculative DNS lookups
     ]
     if sys.platform == "linux":
         args.extend([

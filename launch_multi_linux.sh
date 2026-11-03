@@ -25,6 +25,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKERS_PER_LINK="${WORKERS_PER_LINK:-3}"
+TOTAL_WORKERS=12  # 3 workers per referral × 4 referral links = 12 total
 NUM_WINDOWS="${NUM_WINDOWS:-}"
 MODE="${MODE:-direct}"
 DELAY_MIN="${DELAY_MIN:-0}"
@@ -34,8 +35,8 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 TMPDIR_WORKERS="/tmp/cloudflare_auto_workers"
 TMUX_SESSION="cloudflare-auto"
 
-# Terminal window mode: default headed (visible terminal emulator windows)
-HEADLESS="${HEADLESS:-false}"
+# Terminal window mode: default headless (background processes with log files)
+HEADLESS="${HEADLESS:-true}"
 
 # Browser execution mode: default headless (no Chromium GUI popups)
 BROWSER_HEADED="false"
@@ -86,9 +87,16 @@ ACCOUNT_4_EMAIL="dai@gmail.com"
 # ── Stop Command ─────────────────────────────────────────────
 if [[ "${1:-}" == "stop" || "${2:-}" == "stop" ]]; then
     echo "================================================================"
-    echo "  Stopping all CloudflareAuto workers on Linux..."
+    echo "  Stopping all CloudflareAuto workers on Linux cleanly with pkill..."
     echo "================================================================"
     
+    # Terminate workers and browser processes cleanly with pkill
+    pkill -f 'main.py' 2>/dev/null || true
+    pkill -f 'worker_.*\.sh' 2>/dev/null || true
+    pkill -f 'chromium' 2>/dev/null || true
+    pkill -f 'Chromium' 2>/dev/null || true
+    pkill -f 'playwright' 2>/dev/null || true
+
     # Kill tmux session if active
     if command -v tmux &>/dev/null && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
         tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
@@ -99,20 +107,18 @@ if [[ "${1:-}" == "stop" || "${2:-}" == "stop" ]]; then
     if [[ -f "$TMPDIR_WORKERS/pids.txt" ]]; then
         while read -r pid; do
             if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-                kill "$pid" 2>/dev/null || true
+                kill -9 "$pid" 2>/dev/null || true
             fi
         done < "$TMPDIR_WORKERS/pids.txt"
         rm -f "$TMPDIR_WORKERS/pids.txt"
         echo "  [+] Cleaned up background processes."
     fi
 
-    # Terminate any remaining main.py instances
-    pkill -f 'main.py' 2>/dev/null || true
-    pkill -f 'worker_.*\.sh' 2>/dev/null || true
     rm -rf "$TMPDIR_WORKERS"
     rm -f /tmp/cloudflare_rate_limit_triggered.flag
     rm -rf /tmp/websurfer_screenshots "${TMPDIR:-/tmp}/websurfer_screenshots" 2>/dev/null || true
-    echo "  [+] All workers stopped."
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* 2>/dev/null || true
+    echo "  [+] All workers stopped cleanly with pkill."
     echo "================================================================"
     exit 0
 fi
@@ -203,13 +209,13 @@ elif [[ "$TARGET_ARG" == "4" || "$TARGET_ARG" == "dai" || "$TARGET_ARG" == "dai@
 elif [[ "$TARGET_ARG" == "5" || "$TARGET_ARG" == "all" || "$TARGET_ARG" == "distribute" || "$TARGET_ARG" == "both" || "$TARGET_ARG" == "round-robin" || "$TARGET_ARG" == "scatter" ]]; then
     ROUND_ROBIN=true
     if [[ "$NETWORK_MODE" == "residential" ]]; then
-        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+        TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
         TARGET_URL="Distributed across pn, dd, jn, dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-4}"
+        NUM_WINDOWS="${NUM_WINDOWS:-12}"
     else
-        TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-        TARGET_URL="Distributed across dd & jn"
-        NUM_WINDOWS="${NUM_WINDOWS:-6}"
+        TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+        TARGET_URL="Distributed across pn, dd, jn, dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-12}"
     fi
 elif [[ -n "${TARGET_URL:-}" && "${TARGET_URL:-}" != "$ACCOUNT_2_URL" ]]; then
     TARGET_EMAIL="Custom URL"
@@ -225,7 +231,7 @@ elif [ -t 0 ]; then
     if [[ "$NETWORK_MODE" == "residential" ]]; then
         echo "  [5] 4 Refer Links  ->  1 worker each: pn, dd, jn, dai (Default for Residential)"
     else
-        echo "  [5] dd & jn        ->  3 workers each (6 total - Default for Linux)"
+        echo "  [5] All 4 Links    ->  3 workers each (12 total - Default)"
     fi
     echo "  [6] Custom URL     ->  [Enter your own referral link]"
     echo "================================================================"
@@ -256,13 +262,13 @@ elif [ -t 0 ]; then
         5|all|distribute|both|scatter)
             ROUND_ROBIN=true
             if [[ "$NETWORK_MODE" == "residential" ]]; then
-                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
                 TARGET_URL="Distributed across pn, dd, jn, dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-4}"
+                NUM_WINDOWS="${NUM_WINDOWS:-12}"
             else
-                TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-                TARGET_URL="Distributed across dd & jn"
-                NUM_WINDOWS="${NUM_WINDOWS:-6}"
+                TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+                TARGET_URL="Distributed across pn, dd, jn, dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-12}"
             fi
             ;;
         6|custom)
@@ -274,13 +280,13 @@ elif [ -t 0 ]; then
         *)
             ROUND_ROBIN=true
             if [[ "$NETWORK_MODE" == "residential" ]]; then
-                TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+                TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
                 TARGET_URL="Distributed across pn, dd, jn, dai"
-                NUM_WINDOWS="${NUM_WINDOWS:-4}"
+                NUM_WINDOWS="${NUM_WINDOWS:-12}"
             else
-                TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-                TARGET_URL="Distributed across dd & jn"
-                NUM_WINDOWS="${NUM_WINDOWS:-6}"
+                TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+                TARGET_URL="Distributed across pn, dd, jn, dai"
+                NUM_WINDOWS="${NUM_WINDOWS:-12}"
             fi
             ;;
     esac
@@ -288,13 +294,13 @@ else
     # Non-interactive fallback default
     ROUND_ROBIN=true
     if [[ "$NETWORK_MODE" == "residential" ]]; then
-        TARGET_EMAIL="4 Distinct Refer Links (1 worker each: pn, dd, jn, dai)"
+        TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
         TARGET_URL="Distributed across pn, dd, jn, dai"
-        NUM_WINDOWS="${NUM_WINDOWS:-4}"
+        NUM_WINDOWS="${NUM_WINDOWS:-12}"
     else
-        TARGET_EMAIL="dd & jn (3 workers each = 6 total)"
-        TARGET_URL="Distributed across dd & jn"
-        NUM_WINDOWS="${NUM_WINDOWS:-6}"
+        TARGET_EMAIL="4 Distinct Refer Links (3 workers each: pn, dd, jn, dai = 12 total)"
+        TARGET_URL="Distributed across pn, dd, jn, dai"
+        NUM_WINDOWS="${NUM_WINDOWS:-12}"
     fi
 fi
 
@@ -398,11 +404,7 @@ GUI_TERMINAL="none"
 
 if [[ "$HEADLESS" == "true" ]]; then
     if [[ "$SELECTED_METHOD" == "auto" ]]; then
-        if command -v tmux &>/dev/null; then
-            SELECTED_METHOD="tmux"
-        else
-            SELECTED_METHOD="bg"
-        fi
+        SELECTED_METHOD="bg"
     fi
 elif [[ "$SELECTED_METHOD" == "auto" ]]; then
     # Auto-detect local display if unset (e.g. running via SSH on a desktop machine)
@@ -489,14 +491,14 @@ echo "  Project   : $PROJECT_DIR"
 echo "  Python    : $PYTHON"
 echo "  Mode      : $MODE (--loop)"
 echo "  Network   : $([[ "$NETWORK_MODE" == "residential" ]] && echo "Residential Proxy (DataImpulse - Dynamic sticky IP per run)" || echo "NordVPN / Direct (Host Network)")"
-echo "  Workers   : $NUM_WINDOWS ($([[ "$NETWORK_MODE" == "residential" ]] && echo "1 per refer link across 4 distinct accounts (pn, dd, jn, dai)" || echo "${WORKERS_PER_LINK} per refer link"), ${COLS}x${ROWS} grid)"
+echo "  Workers   : $NUM_WINDOWS ($([[ "$NETWORK_MODE" == "residential" ]] && echo "3 per refer link × 4 accounts (pn, dd, jn, dai) = 12 total | unique sticky IP per worker" || echo "3 per refer link × 4 accounts = 12 total | staggered per worker"), ${COLS}x${ROWS} grid)"
 if [[ "$SELECTED_METHOD" == "gui" ]]; then
 echo "  Screen    : ${SCREEN_W}x${SCREEN_H}  ->  each win ${WIN_W}x${WIN_H}"
 fi
 if (( DELAY_MAX > 0 )); then
     echo "  Pacing    : ${DELAY_MIN}-${DELAY_MAX}s between runs"
 elif [[ "$NETWORK_MODE" == "residential" ]]; then
-    echo "  Pacing    : Staggered cooldown (Worker 1: ~55s, Worker 2: ~75s, Worker 3: ~95s, Worker 4: ~115s)"
+    echo "  Pacing    : Staggered cooldown per slot (slot 0: ~50s, slot 1: ~70s, slot 2: ~90s × 4 referral groups = 12 workers)"
 else
     echo "  Pacing    : No cooldown (continuous)"
 fi
@@ -521,15 +523,11 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     Y=$(( TASKBAR_OFFSET + MARGIN + ROW * (WIN_H + MARGIN) ))
 
     if [[ "$ROUND_ROBIN" == "true" ]]; then
-        if [[ "$NETWORK_MODE" == "residential" ]]; then
-            ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
-            EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
-            IDX=$(( i % 4 ))
-        else
-            ACCOUNTS=("$ACCOUNT_2_URL" "$ACCOUNT_3_URL")
-            EMAILS=("$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL")
-            IDX=$(( (i / WORKERS_PER_LINK) % ${#ACCOUNTS[@]} ))
-        fi
+        # 12 workers total: 3 per referral across all 4 accounts
+        # Workers 00-02 → account1(pn), 03-05 → account2(dd), 06-08 → account3(jn), 09-11 → account4(dai)
+        ACCOUNTS=("$ACCOUNT_1_URL" "$ACCOUNT_2_URL" "$ACCOUNT_3_URL" "$ACCOUNT_4_URL")
+        EMAILS=("$ACCOUNT_1_EMAIL" "$ACCOUNT_2_EMAIL" "$ACCOUNT_3_EMAIL" "$ACCOUNT_4_EMAIL")
+        IDX=$(( i / 3 % 4 ))
         WORKER_URL="${ACCOUNTS[$IDX]}"
         WORKER_ACCOUNT="${EMAILS[$IDX]}"
     else
@@ -538,22 +536,88 @@ for (( i=0; i<NUM_WINDOWS; i++ )); do
     fi
 
     if [[ "$NETWORK_MODE" == "vpn" ]]; then
+        # Each group of 3 workers (by referral account) should rotate on a different VPN server
+        # NordVPN supervisor handles the per-run rotation; label the group for logging
+        ACCT_GROUP=$(( i / 3 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
 export NETWORK_MODE="vpn"
 export USE_PROXY="false"
+export WORKER_ACCT_GROUP="${ACCT_GROUP}"
 
 printf '\033]0;${LABEL}\007' 2>/dev/null || true
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" || "${SELECTED_METHOD}" == "bg" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    elif [[ "${SELECTED_METHOD}" == "tmux" ]]; then
+        if command -v tmux &>/dev/null; then
+            tmux respawn-pane -k "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" 2>/dev/null || true
+        fi
+        exit 0
+    else
+        case "${GUI_TERMINAL}" in
+            gnome-terminal)
+                gnome-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -- env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xfce4-terminal)
+                xfce4-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            terminator)
+                terminator -T "${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            tilix)
+                tilix -t "${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            konsole)
+                konsole -p tabtitle="${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            alacritty)
+                alacritty --title "${LABEL}" --geometry "${COLS_CHAR}x${ROWS_CHAR}" --position "${X}" "${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            kitty)
+                kitty --title "${LABEL}" -o "initial_window_width=${WIN_W}" -o "initial_window_height=${WIN_H}" env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xterm|x-terminal-emulator)
+                "${GUI_TERMINAL}" -title "${LABEL}" -geometry "${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            *)
+                env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+        esac
+
+        sleep 0.5
+        if command -v wmctrl &>/dev/null; then
+            wmctrl -c "${LABEL}" 2>/dev/null || true
+        fi
+        kill -9 \$PPID 2>/dev/null || true
+        exit 0
+    fi
+}
+
 echo ""
 echo "============================================="
 echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Mode]"
-echo "  Target URL : ${WORKER_URL}"
-echo "  Network    : NordVPN Host Tunnel (No Proxy)"
-echo "  OTP Maint. : 3x Change Email Retry Enabled"
+echo "  Target URL  : ${WORKER_URL}"
+echo "  Acct Group  : ${ACCT_GROUP} (each group uses unique VPN tunnel)"
+echo "  Network     : NordVPN Host Tunnel (No Proxy)"
+echo "  OTP Maint.  : Auto-closes terminal & relaunches fresh"
 echo "============================================="
 echo ""
 echo "[${LABEL}] Starting 1 registration via NordVPN..."
@@ -570,6 +634,8 @@ elif [[ \$EXIT_CODE -eq 42 ]]; then
     echo ""
     echo "[${LABEL}] ⚠️ Rate limited (exit 42) -- finishing session for VPN rotation."
     exit 42
+elif [[ \$EXIT_CODE -eq 43 ]]; then
+    restart_worker_terminal
 else
     echo ""
     echo "[${LABEL}] ⏭️ Process finished with code \$EXIT_CODE."
@@ -578,18 +644,88 @@ fi
 WORKER_EOF
 
     elif [[ "$NETWORK_MODE" == "standalone" ]]; then
+        # Each worker gets a staggered start to avoid hitting the same NordVPN IP simultaneously
+        INIT_STAGGER=$(( i * 10 ))
+        ACCT_GROUP=$(( i / 3 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
 export WORKER_ID="${LABEL}"
 export NETWORK_MODE="vpn"
 export USE_PROXY="false"
+export WORKER_ACCT_GROUP="${ACCT_GROUP}"
 
 printf '\033]0;${LABEL}\007' 2>/dev/null || true
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" || "${SELECTED_METHOD}" == "bg" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    elif [[ "${SELECTED_METHOD}" == "tmux" ]]; then
+        if command -v tmux &>/dev/null; then
+            tmux respawn-pane -k "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" 2>/dev/null || true
+        fi
+        exit 0
+    else
+        case "${GUI_TERMINAL}" in
+            gnome-terminal)
+                gnome-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -- env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xfce4-terminal)
+                xfce4-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            terminator)
+                terminator -T "${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            tilix)
+                tilix -t "${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            konsole)
+                konsole -p tabtitle="${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            alacritty)
+                alacritty --title "${LABEL}" --geometry "${COLS_CHAR}x${ROWS_CHAR}" --position "${X}" "${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            kitty)
+                kitty --title "${LABEL}" -o "initial_window_width=${WIN_W}" -o "initial_window_height=${WIN_H}" env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xterm|x-terminal-emulator)
+                "${GUI_TERMINAL}" -title "${LABEL}" -geometry "${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            *)
+                env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+        esac
+
+        sleep 0.5
+        if command -v wmctrl &>/dev/null; then
+            wmctrl -c "${LABEL}" 2>/dev/null || true
+        fi
+        kill -9 \$PPID 2>/dev/null || true
+        exit 0
+    fi
+}
+
 RUN_COUNT=0
 SUCCESS_COUNT=0
+
+if [[ ${INIT_STAGGER} -gt 0 && "\${WORKER_RESTARTED:-0}" != "1" ]]; then
+    echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s (unique slot for each worker)..."
+    sleep ${INIT_STAGGER}
+fi
 
 while true; do
     RUN_COUNT=\$((RUN_COUNT + 1))
@@ -598,9 +734,10 @@ while true; do
 
     echo "============================================="
     echo "  ${LABEL} (${WORKER_ACCOUNT}) [NordVPN Standalone]"
-    echo "  Target URL : ${WORKER_URL}"
-    echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
-    echo "  OTP Maint. : 3x Change Email Retry Enabled"
+    echo "  Target URL  : ${WORKER_URL}"
+    echo "  Total Runs  : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
+    echo "  Acct Group  : ${ACCT_GROUP} (3 workers per referral, staggered slots)"
+    echo "  OTP Maint.  : Auto-closes terminal & relaunches fresh"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on device network (no proxy)..."
@@ -617,6 +754,8 @@ while true; do
         echo ""
         echo "[${LABEL}] ⚠️ Rate limited (exit 42). Cooldown before retry..."
         sleep 60
+    elif [[ \$EXIT_CODE -eq 43 ]]; then
+        restart_worker_terminal
     else
         echo ""
         echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$EXIT_CODE). Restarting in 2s..."
@@ -628,9 +767,12 @@ done
 WORKER_EOF
 
     else
-        # Default: Residential Proxy Mode
+        # Residential Proxy Mode:
+        # Each worker gets a unique sticky DataImpulse session ID (via WORKER_ID in ip_tracker.py).
+        # Stagger startup: 15s apart so no two workers hit the proxy at the same instant.
+        # Cooldown is per-worker so no two workers share the same timing window.
         INIT_STAGGER=$(( i * 15 ))
-        COOLDOWN_BASE=$(( 50 + i * 20 ))
+        COOLDOWN_BASE=$(( 50 + (i % 3) * 20 ))
         cat > "$WORKER_SCRIPT" <<WORKER_EOF
 #!/usr/bin/env bash
 export PYTHONUNBUFFERED=1
@@ -642,10 +784,71 @@ export USE_PROXY="true"
 printf '\033]0;${LABEL}\007' 2>/dev/null || true
 cd "${PROJECT_DIR}"
 
+restart_worker_terminal() {
+    echo ""
+    echo "[${LABEL}] ⚠️ OTP MAINTENANCE TRIGGERED (Exit code 43)!"
+    echo "[${LABEL}] 🛑 Cleanly closing worker with pkill and relaunching fresh headless worker..."
+    pkill -f "main.py.*worker-id ${LABEL}" 2>/dev/null || true
+    pkill -P $$ 2>/dev/null || true
+    rm -rf /tmp/playwright* /tmp/.org.chromium* /tmp/chromium* /tmp/websurfer_screenshots* 2>/dev/null || true
+    sleep 1
+
+    if [[ "${HEADLESS}" == "true" || "${SELECTED_METHOD}" == "bg" ]]; then
+        mkdir -p "${PROJECT_DIR}/logs"
+        LOG_FILE="${PROJECT_DIR}/logs/worker_${NUM}.log"
+        nohup env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" >> "\${LOG_FILE}" 2>&1 &
+        NEW_PID=\$!
+        echo "[${LABEL}] 🚀 Fresh headless worker started (PID: \${NEW_PID}) -> \${LOG_FILE}"
+        exit 0
+    elif [[ "${SELECTED_METHOD}" == "tmux" ]]; then
+        if command -v tmux &>/dev/null; then
+            tmux respawn-pane -k "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" 2>/dev/null || true
+        fi
+        exit 0
+    else
+        case "${GUI_TERMINAL}" in
+            gnome-terminal)
+                gnome-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -- env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xfce4-terminal)
+                xfce4-terminal --title="${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            terminator)
+                terminator -T "${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            tilix)
+                tilix -t "${LABEL}" --geometry="${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e "env WORKER_RESTARTED=1 bash ${WORKER_SCRIPT}" &
+                ;;
+            konsole)
+                konsole -p tabtitle="${LABEL}" --geometry="${WIN_W}x${WIN_H}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            alacritty)
+                alacritty --title "${LABEL}" --geometry "${COLS_CHAR}x${ROWS_CHAR}" --position "${X}" "${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            kitty)
+                kitty --title "${LABEL}" -o "initial_window_width=${WIN_W}" -o "initial_window_height=${WIN_H}" env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            xterm|x-terminal-emulator)
+                "${GUI_TERMINAL}" -title "${LABEL}" -geometry "${COLS_CHAR}x${ROWS_CHAR}+${X}+${Y}" -e env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+            *)
+                env WORKER_RESTARTED=1 bash "${WORKER_SCRIPT}" &
+                ;;
+        esac
+
+        sleep 0.5
+        if command -v wmctrl &>/dev/null; then
+            wmctrl -c "${LABEL}" 2>/dev/null || true
+        fi
+        kill -9 \$PPID 2>/dev/null || true
+        exit 0
+    fi
+}
+
 RUN_COUNT=0
 SUCCESS_COUNT=0
 
-if [[ ${INIT_STAGGER} -gt 0 ]]; then
+if [[ ${INIT_STAGGER} -gt 0 && "\${WORKER_RESTARTED:-0}" != "1" ]]; then
     echo "[${LABEL}] ⏳ Initial launch stagger: waiting ${INIT_STAGGER}s to avoid simultaneous requests..."
     sleep ${INIT_STAGGER}
 fi
@@ -661,7 +864,7 @@ while true; do
     echo "  Target URL : ${WORKER_URL}"
     echo "  Total Runs : \$RUN_COUNT | ✅ Successes: \$SUCCESS_COUNT"
     echo "  Cooldown   : ${COOLDOWN_BASE}-\$(( ${COOLDOWN_BASE} + 10 ))s staggered"
-    echo "  OTP Maint. : 3x Change Email Retry Enabled"
+    echo "  OTP Maint. : Auto-closes terminal & relaunches fresh"
     echo "============================================="
     echo ""
     echo "[${LABEL}] Starting registration #\$RUN_COUNT on dedicated residential IP..."
@@ -678,6 +881,8 @@ while true; do
     elif [[ \$EXIT_CODE -eq 42 ]]; then
         echo ""
         echo "[${LABEL}] ⚠️ Rate limited (exit 42)."
+    elif [[ \$EXIT_CODE -eq 43 ]]; then
+        restart_worker_terminal
     else
         echo ""
         echo "[${LABEL}] ⏭️ Run #\$RUN_COUNT finished (code \$EXIT_CODE)."
@@ -816,7 +1021,8 @@ elif [[ "$SELECTED_METHOD" == "tmux" ]]; then
     echo "  👉 To stop all workers: ./launch_multi_linux.sh stop"
 
 elif [[ "$SELECTED_METHOD" == "bg" ]]; then
-    echo "[*] Launching ${NUM_WINDOWS} background workers with log files..."
+    echo "[*] Launching ${NUM_WINDOWS} headless background workers..."
+    mkdir -p "$PROJECT_DIR/logs"
     PID_FILE="$TMPDIR_WORKERS/pids.txt"
     > "$PID_FILE"
 
@@ -824,7 +1030,7 @@ elif [[ "$SELECTED_METHOD" == "bg" ]]; then
         NUM=$(printf '%02d' $((i+1)))
         LABEL="Worker-${NUM}"
         WORKER_SCRIPT="$TMPDIR_WORKERS/worker_${NUM}.sh"
-        LOG_FILE="$TMPDIR_WORKERS/worker_${NUM}.log"
+        LOG_FILE="$PROJECT_DIR/logs/worker_${NUM}.log"
 
         bash "$WORKER_SCRIPT" > "$LOG_FILE" 2>&1 &
         PID=$!
@@ -833,12 +1039,12 @@ elif [[ "$SELECTED_METHOD" == "bg" ]]; then
     done
 
     echo ""
-    echo "  [+] All ${NUM_WINDOWS} workers running in background."
+    echo "  [+] All ${NUM_WINDOWS} workers running headlessly in background."
     echo ""
     echo "  👉 To monitor live logs from all workers, run:"
-    echo "     tail -f ${TMPDIR_WORKERS}/worker_*.log"
+    echo "     tail -f logs/worker_*.log"
     echo ""
-    echo "  👉 To stop all workers: ./launch_multi_linux.sh stop"
+    echo "  👉 To stop all workers cleanly: ./launch_multi_linux.sh stop  (or pkill -f 'main.py')"
 fi
 
 echo ""
